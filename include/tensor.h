@@ -115,7 +115,11 @@ inline std::ostream& operator<<(std::ostream& outs, View<M>& view) {
 		repr += std::to_string(x);
 		repr += ", ";
 	}
-	repr += ")]";
+	uint64_t size = view.strides[0] * view.view[0] * 32;
+	repr += "), disk: ";
+	repr += std::to_string( size*1.25e-7);
+	repr += " MB ]";
+
 	return outs << repr;
 }
 
