@@ -30,11 +30,10 @@ struct View {
 	std::array<uint32_t, N> view;
 	std::array<uint32_t, N> strides;
 
-	Void() = delete;
+	View() = delete;
 
-	Void(std::initializer_list<uint32_t> argview) {
-		std::cout << "CONSTRUCTOR GETS CALLED" << std::endl;
-		assert(sizeof(argview) == N);
+	View(std::initializer_list<uint32_t> argview) {
+		assert(argview.size() == N);
 		uint8_t i = 0;
 		for(const auto& x : argview) {
 			this->view[i] = x;
@@ -46,8 +45,9 @@ struct View {
 	//private:
 		std::array<uint32_t, N> calculate_strides(std::array<uint32_t, N> view) {
 			std::array<uint32_t, N> tmp;
+			tmp.fill(1);
 			for(size_t i=N; i > 0; i--) {
-				if(i==N) tmp[N] = 1;	
+				if(i==N) continue;	
 				tmp[i-1] = tmp[i] * view[i];
 			}	
 			this-> strides = tmp;
