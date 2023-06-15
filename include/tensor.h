@@ -9,6 +9,9 @@
 #include <cassert>
 #include <initializer_list>
 
+// debug
+#include <iostream>
+
 using std::size_t;
 
 namespace tensor {
@@ -27,7 +30,10 @@ struct View {
 	std::array<uint32_t, N> view;
 	std::array<uint32_t, N> strides;
 
+	Void() = delete;
+
 	Void(std::initializer_list<uint32_t> argview) {
+		std::cout << "CONSTRUCTOR GETS CALLED" << std::endl;
 		assert(sizeof(argview) == N);
 		uint8_t i = 0;
 		for(const auto& x : argview) {
@@ -37,16 +43,18 @@ struct View {
 		this->calculate_strides(this->view);
 	}
 
-	private:
-		void calculate_strides(std::array<uint32_t, N> view) {
+	//private:
+		std::array<uint32_t, N> calculate_strides(std::array<uint32_t, N> view) {
 			std::array<uint32_t, N> tmp;
-			for(size_t i=N-1; i >= 0; i--) {
-				if(i==N-1) tmp[N-1] = 1;	
-				tmp[i] = tmp[i+1] * view[i+1];
+			for(size_t i=N; i > 0; i--) {
+				if(i==N) tmp[N] = 1;	
+				tmp[i-1] = tmp[i] * view[i];
 			}	
 			this-> strides = tmp;
+			return tmp;
 		}
 };
+
 
 template<uint32_t M>
 class ShapeTracker {
@@ -91,6 +99,27 @@ class Tensor {
 // uint32_t arr[] = { . . . };
 // auto a = Tensor<uint32_t, arr.size()>( arr, {2, 2, -1} );
 // auto a = Tensor<typeof arr, arr.size()>(arr, {2, 2, -1});
+
+
+// OUTPUT REPR 
+
+template<uint32_t M>
+inline std::ostream& operator<<(std::ostream& outs, View<M>& view) {
+	std::string repr = "View[(";
+	for(const auto x : view.view) {
+		repr += std::to_string(x);
+		repr += ", ";
+	}
+	repr += "), (";
+	for(const auto x : view.strides) {
+		repr += std::to_string(x);
+		repr += ", ";
+	}
+	repr += ")]";
+	return outs << repr;
+}
+
+
 
 } // namespace
 #endif
