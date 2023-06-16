@@ -33,7 +33,7 @@ struct View {
 	View() = delete;
 
 	View(std::initializer_list<uint32_t> argview) {
-		assert(argview.size() == N);
+		assert(argview.size() == N && !(argview.size() > TENSOR_MAX_DIM));
 		uint8_t i = 0;
 		for(const auto& x : argview) {
 			this->view[i] = x;
@@ -42,8 +42,8 @@ struct View {
 		this->calculate_strides(this->view);
 	}
 
-	//private:
-		std::array<uint32_t, N> calculate_strides(std::array<uint32_t, N> view) {
+	private:
+		 void calculate_strides(std::array<uint32_t, N> view) {
 			std::array<uint32_t, N> tmp;
 			tmp.fill(1);
 			for(size_t i=N; i > 0; i--) {
@@ -51,17 +51,32 @@ struct View {
 				tmp[i-1] = tmp[i] * view[i];
 			}	
 			this-> strides = tmp;
-			return tmp;
 		}
 };
 
 
 template<uint32_t M>
 class ShapeTracker {
+
+	friend class Tensor;
+	/*
+		[ ] store multiple views
+		[ ] store original shape
+		[ ] broadcast and permute
+	*/
 	public:
 		struct View<M> view;
 		size_t size;
+
+	private:
+		bool is_valid_view(std::initializer_list<uint32_t> shape) {
+			uint32_t p = 1;
+			for(const uint32_t& i : shape) { p *= i; }
+			if(this->storage_size % p == 0) return 1;	
+			else return 0;
+		}
 };
+
 
 template<typename T, size_t N, size_t M>
 class Tensor {
@@ -87,12 +102,6 @@ class Tensor {
 		std::array<T, N> storage;
 		View<M> shape;
 
-		bool is_valid_view(std::initializer_list<uint32_t> shape) {
-			uint32_t p = 1;
-			for(const uint32_t& i : shape) { p *= i; }
-			if(this->storage_size % p == 0) return 1;	
-			else return 0;
-		}
 };
 
 
