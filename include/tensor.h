@@ -25,14 +25,34 @@ enum MovementOps {
 	STRIDE
 };
 
+enum Device {
+	GPU,
+	CPU
+};
+
 template<uint32_t N>
 struct View {
 	std::array<uint32_t, N> view;
 	std::array<uint32_t, N> strides;
 
-	View() = delete;
+	View() {};
 
 	View(std::initializer_list<uint32_t> argview) {
+		assert(argview.size() == N && !(argview.size() > TENSOR_MAX_DIM));
+		uint8_t i = 0;
+		for(const auto& x : argview) {
+			this->view[i] = x;
+			i++;
+		}
+		this->calculate_strides(this->view);
+	}
+
+	View(View<N>& v) {
+		this->view = v.view;
+		this->strides = v.strides;
+	}
+
+	void reshape(std::initializer_list<uint32_t> argview) {
 		assert(argview.size() == N && !(argview.size() > TENSOR_MAX_DIM));
 		uint8_t i = 0;
 		for(const auto& x : argview) {
@@ -58,7 +78,7 @@ struct View {
 template<uint32_t M>
 class ShapeTracker {
 
-	friend class Tensor;
+	//friend class Tensor;
 	/*
 		[ ] store multiple views
 		[ ] store original shape
@@ -80,20 +100,25 @@ class ShapeTracker {
 
 template<typename T, size_t N, size_t M>
 class Tensor {
-	public:
-		Tensor(T* arr, std::initializer_list<uint32_t> shape) 
-			: storage(*arr), storage_size(*arr.size())
-		{ };
 
-		uint32_t* get_shape() {
+	public:
+  	Device device = GPU;
+
+	public:
+		Tensor(T arr[], const std::initializer_list<uint32_t> shape) 
+			: storage_size(sizeof(arr)/sizeof(arr[0]))
+		{ 
+			for(size_t i=0; i < sizeof(arr)/sizeof(arr[0]); i++) {
+				this->storage[i] = arr[i];
+			}
+			this->shape.reshape(shape);
+		};
+
+		std::array<uint32_t, M> get_shape() {
 			return this->shape.view;
 		}
 
 		bool reshape(std::initializer_list<uint32_t> nview) {
-			if(this->is_valid_view(nview)) {
-				this->shape.view = nview;
-				return 1;
-			}
 			return 0;
 		}
 
@@ -101,7 +126,6 @@ class Tensor {
 		uint64_t storage_size;
 		std::array<T, N> storage;
 		View<M> shape;
-
 };
 
 
@@ -111,6 +135,20 @@ class Tensor {
 
 
 // OUTPUT REPR 
+
+template<typename T, size_t N, size_t M>
+inline std::ostream& operator<<(std::ostream& outs, Tensor<T, N, M>& tensor) {
+	std::string repr = "<Tensor (";
+	for(const auto x : tensor.get_shape()) {
+		repr += std::to_string(x);
+		repr += ", ";
+	}
+	repr += ") on ";
+	repr += (tensor.device == 1) ? "CPU" : "GPU"; 
+	repr += " with grad (0)>";
+	return outs << repr;
+}
+
 
 template<uint32_t M>
 inline std::ostream& operator<<(std::ostream& outs, View<M>& view) {
