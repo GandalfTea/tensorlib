@@ -35,7 +35,10 @@ struct View {
 	std::array<uint32_t, N> view;
 	std::array<uint32_t, N> strides;
 
-	View() {};
+	View() {
+		this->view.fill(0);
+		this->strides.fill(0);
+	};
 
 	View(std::initializer_list<uint32_t> argview) {
 		assert(argview.size() == N && !(argview.size() > TENSOR_MAX_DIM));
@@ -45,11 +48,6 @@ struct View {
 			i++;
 		}
 		this->calculate_strides(this->view);
-	}
-
-	View(View<N>& v) {
-		this->view = v.view;
-		this->strides = v.strides;
 	}
 
 	void reshape(std::initializer_list<uint32_t> argview) {
@@ -101,19 +99,46 @@ class ShapeTracker {
 template<typename T, size_t N, size_t M>
 class Tensor {
 
-	public:
-  	Device device = GPU;
-		bool bgrad;
+	std::array<T, N> storage;
+	uint64_t storage_size;
+  Device device = GPU;
+	View<M> shape;
+	bool bgrad;
 
 	public:
 		Tensor(T arr[N], const std::initializer_list<uint32_t> shape, bool grad = false) 
-			: storage_size(sizeof(arr)/sizeof(arr[0])), bgrad(grad)
+			: storage_size(N), bgrad(grad)
 		{ 
-			for(size_t i=0; i < N; i++) {
-				this->storage[i] = arr[i];
-			}
+			for(size_t i=0; i < N; i++) { this->storage[i] = arr[i]; }
 			this->shape.reshape(shape);
 		};
+
+
+
+		template<uint32_t ... Args>
+		T* operator()(Args... args) {
+			assert( sizeof...(args) <= N);
+			std::initializer_list<uint32_t> tmp = std::initializer_list<uint32_t>{args...} 
+
+			std::array<uint32_t> idxs;
+			for(size_t i=0; i < tmp.size(); i++) {
+				assert(this->shape.view[i] >= tmp[i]);
+				idxs[i] = this->shape.stride[i]*tmp[i];
+			}
+			uint64_t startidx = std::accumulate(std::start(idxs), std::end(idxs), 0)
+			uint64_t endidx = 0; 
+			for(size_t i=tmp.size(); i<M; i++) {
+				endidx += this->shape.strides[i];	
+			}
+
+			std::array<T, endidx-startidx> ret;
+			for(size_t i=startidx; i<=endidx; i++) {
+				ret[i-startidx] = this->storage[i];
+			}
+			return ret;
+		}
+
+
 
 		std::array<T, N> data() {
 			return this->storage;
@@ -130,15 +155,8 @@ class Tensor {
 		}
 
 	private:
-		uint64_t storage_size;
-		std::array<T, N> storage;
-		View<M> shape;
 };
 
-
-// uint32_t arr[] = { . . . };
-// auto a = Tensor<uint32_t, arr.size()>( arr, {2, 2, -1} );
-// auto a = Tensor<typeof arr, arr.size()>(arr, {2, 2, -1});
 
 
 // OUTPUT REPR 
