@@ -103,22 +103,29 @@ class Tensor {
 
 	public:
   	Device device = GPU;
+		bool bgrad;
 
 	public:
-		Tensor(T arr[], const std::initializer_list<uint32_t> shape) 
-			: storage_size(sizeof(arr)/sizeof(arr[0]))
+		Tensor(T arr[N], const std::initializer_list<uint32_t> shape, bool grad = false) 
+			: storage_size(sizeof(arr)/sizeof(arr[0])), bgrad(grad)
 		{ 
-			for(size_t i=0; i < sizeof(arr)/sizeof(arr[0]); i++) {
+			for(size_t i=0; i < N; i++) {
 				this->storage[i] = arr[i];
 			}
 			this->shape.reshape(shape);
 		};
+
+		std::array<T, N> data() {
+			return this->storage;
+		}
 
 		std::array<uint32_t, M> get_shape() {
 			return this->shape.view;
 		}
 
 		bool reshape(std::initializer_list<uint32_t> nview) {
+			// TODO: Check if work lol
+			this->shape.reshape(nview);
 			return 0;
 		}
 
@@ -146,6 +153,17 @@ inline std::ostream& operator<<(std::ostream& outs, Tensor<T, N, M>& tensor) {
 	repr += ") on ";
 	repr += (tensor.device == 1) ? "CPU" : "GPU"; 
 	repr += " with grad (0)>";
+	return outs << repr;
+}
+
+
+template<typename T, size_t N>
+inline std::ostream& operator<<(std::ostream& outs, std::array<T, N> arr) {
+	std::string repr = "";
+	for(const auto x : arr) {
+		repr += std::to_string(x);
+		repr += " ";
+	}
 	return outs << repr;
 }
 
