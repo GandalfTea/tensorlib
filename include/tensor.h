@@ -6,6 +6,8 @@
 #define TENSOR_MAX_STORAGE_SIZE 2 << 63 
 
 #include <array>
+#include <memory>
+#include <numeric>
 #include <cassert>
 #include <initializer_list>
 
@@ -29,6 +31,14 @@ enum Device {
 	GPU,
 	CPU
 };
+
+
+template<typename T>
+struct tensor_indexing_return {
+	uint64_t size;
+	std::unique_ptr<T[]> data;
+};
+
 
 template<uint32_t N>
 struct View {
@@ -115,27 +125,42 @@ class Tensor {
 
 
 
-		template<uint32_t ... Args>
-		T* operator()(Args... args) {
-			assert( sizeof...(args) <= N);
-			std::initializer_list<uint32_t> tmp = std::initializer_list<uint32_t>{args...} 
+		template<typename... Args>
+		tensor_indexing_return<T> operator()(Args... args) {
+			assert( sizeof...(args) <= M && sizeof...(args) > 0);
+			std::initializer_list<uint32_t> tmp = std::initializer_list<uint32_t>{args...}; 
 
-			std::array<uint32_t> idxs;
-			for(size_t i=0; i < tmp.size(); i++) {
-				assert(this->shape.view[i] >= tmp[i]);
-				idxs[i] = this->shape.stride[i]*tmp[i];
-			}
-			uint64_t startidx = std::accumulate(std::start(idxs), std::end(idxs), 0)
-			uint64_t endidx = 0; 
-			for(size_t i=tmp.size(); i<M; i++) {
-				endidx += this->shape.strides[i];	
+			uint32_t i=0;
+			std::array<uint32_t, M> idxs;
+			idxs.fill(0);
+			for(const auto& x : tmp) {
+				assert(x <= this->shape.view[i]-1);
+				idxs[i] = this->shape.strides[i]*x;
+				i++;
 			}
 
-			std::array<T, endidx-startidx> ret;
-			for(size_t i=startidx; i<=endidx; i++) {
-				ret[i-startidx] = this->storage[i];
+			if(tmp.size() < M) {
+				tensor_indexing_return<T> ret;
+				const uint64_t startidx = std::accumulate(std::begin(idxs), std::end(idxs), 0);
+				const uint64_t endidx = startidx + this->shape.strides[tmp.size()-1]; 
+
+				ret.data = std::make_unique<T[]>(endidx-startidx);
+				for(size_t i=startidx; i<=endidx; i++) {
+					ret.data[i-startidx] = this->storage[i];
+				}
+				ret.size = endidx-startidx+1; 
+				return ret;
+
+			} else {
+				tensor_indexing_return<T> ret;
+				ret.size = 1; 
+				std::cout << "Returning one value." << std::endl;
+				const uint64_t idx = std::accumulate(std::begin(idxs), std::end(idxs), 0);
+				ret.data = std::make_unique<T[]>(1);
+				ret.data[0] = this->storage[idx];
+
+				return ret;
 			}
-			return ret;
 		}
 
 
@@ -144,9 +169,8 @@ class Tensor {
 			return this->storage;
 		}
 
-		std::array<uint32_t, M> get_shape() {
-			return this->shape.view;
-		}
+		std::array<uint32_t, M> get_shape() { return this->shape.view; }
+		Device get_device() { return this->device; }
 
 		bool reshape(std::initializer_list<uint32_t> nview) {
 			// TODO: Check if work lol
@@ -169,7 +193,7 @@ inline std::ostream& operator<<(std::ostream& outs, Tensor<T, N, M>& tensor) {
 		repr += ", ";
 	}
 	repr += ") on ";
-	repr += (tensor.device == 1) ? "CPU" : "GPU"; 
+	repr += (tensor.get_device() == 1) ? "CPU" : "GPU"; 
 	repr += " with grad (0)>";
 	return outs << repr;
 }
