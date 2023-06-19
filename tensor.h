@@ -123,8 +123,6 @@ class Tensor {
 			this->shape.reshape(shape);
 		};
 
-
-
 		template<typename... Args>
 		tensor_indexing_return<T> operator()(Args... args) {
 			assert( sizeof...(args) <= M && sizeof...(args) > 0);
@@ -154,7 +152,6 @@ class Tensor {
 			} else {
 				tensor_indexing_return<T> ret;
 				ret.size = 1; 
-				std::cout << "Returning one value." << std::endl;
 				const uint64_t idx = std::accumulate(std::begin(idxs), std::end(idxs), 0);
 				ret.data = std::make_unique<T[]>(1);
 				ret.data[0] = this->storage[idx];
@@ -162,8 +159,6 @@ class Tensor {
 				return ret;
 			}
 		}
-
-
 
 		std::array<T, N> data() {
 			return this->storage;
