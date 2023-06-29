@@ -33,50 +33,47 @@ enum Device {
 };
 
 
-template<typename T>
-struct tensor_indexing_return {
-	uint64_t size;
-	std::unique_ptr<T[]> data;
-};
-
-
-template<uint32_t N>
 struct View {
-	std::array<uint32_t, N> view;
-	std::array<uint32_t, N> strides;
-
-	View() {
-		this->view.fill(0);
-		this->strides.fill(0);
-	};
+	std::unique_ptr<uint32_t[]> view = nullptr;
+	std::unique_ptr<uint32_t[]> strides = nullptr;
 
 	View(std::initializer_list<uint32_t> argview) {
-		assert(argview.size() == N && !(argview.size() > TENSOR_MAX_DIM));
+
+		assert(argview.size() <= TENSOR_MAX_DIM);
+		this->numdim = argview.size();
+
 		uint8_t i = 0;
+		std::unique_ptr<uint32_t[]> nview = std::make_unique<uint32_t[]>(argview.size());
 		for(const auto& x : argview) {
-			this->view[i] = x;
+			nview[i] = x;
 			i++;
 		}
-		this->restride(this->view);
+		this->view = nview;
+		this->restride();
 	}
 
 	void reshape(std::unique_ptr<uint32_t[]> &argview) {
-		assert(sizeof(argview)/4 == N && !(sizeof(argview)/4 > TENSOR_MAX_DIM));
-		for(size_t i=0; i < sizeof(argview)/4; i++) {
-			this->view[i] = argview[i];
-		}
-		this->restride(this->view);
+		assert(sizeof(argview)/4 == this->numdim && !(sizeof(argview)/4 > TENSOR_MAX_DIM)); // always 4 bytes
+		this->view = nullptr; // Not sure if this is needed
+		this->view = argview;
+		this->restride();
+	}
+
+	uint32_t ndim() {
+		return this->numdim;
 	}
 
 	private:
-		 void restride(std::array<uint32_t, N> view) {
-			std::array<uint32_t, N> tmp;
-			tmp.fill(1);
-			for(size_t i=N; i > 0; i--) {
-				if(i==N) continue;	
+		uint32_t numdim = 0;
+
+		void restride() {
+			auto tmp = std::make_unique<uint32_t[]>(this->numdim);
+			for(size_t i=0; i <= numdim; i++) { tmp[i]=1; }
+			for(size_t i=this->numdim; i > 0; i--) {
+				if(i==this->numdim) continue;	
 				tmp[i-1] = tmp[i] * view[i];
 			}	
-			this-> strides = tmp;
+			this->strides = tmp;
 		}
 };
 
@@ -107,10 +104,11 @@ class ShapeTracker {
 template<typename T, size_t N, size_t M>
 class Tensor {
 
-	std::array<T, N> storage;
+	std::unique_ptr<T[]> storage = nullptr;
+	std::unique_ptr<View> shape = nullptr;
+
 	uint64_t storage_size;
   Device device = GPU;
-	View<M> shape;
 	bool bgrad;
 
 	public:
