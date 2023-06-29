@@ -57,7 +57,7 @@ struct View {
 			this->view[i] = x;
 			i++;
 		}
-		this->calculate_strides(this->view);
+		this->restride(this->view);
 	}
 
 	void reshape(std::unique_ptr<uint32_t[]> &argview) {
@@ -65,11 +65,11 @@ struct View {
 		for(size_t i=0; i < sizeof(argview)/4; i++) {
 			this->view[i] = argview[i];
 		}
-		this->calculate_strides(this->view);
+		this->restride(this->view);
 	}
 
 	private:
-		 void calculate_strides(std::array<uint32_t, N> view) {
+		 void restride(std::array<uint32_t, N> view) {
 			std::array<uint32_t, N> tmp;
 			tmp.fill(1);
 			for(size_t i=N; i > 0; i--) {
@@ -122,16 +122,13 @@ class Tensor {
 
 			uint32_t i = 0;
 			std::unique_ptr<uint32_t[]> newshp = std::make_unique<uint32_t[]>(shape.size());
-			for(const auto x : shape) {
-				newshp[i] = x;
-				i++;
-			}
+			for(const auto x : shape) { newshp[i] = x; i++; }
 			this->shape.reshape(newshp);
 		};
 
 		// This is used internally, as there is no way to transform a C array
 		// into an initializer_list with variable number of elements
-		Tensor(t arr[N], const std::unique_ptr<uint32_t[]> &shape[M], bool grad=false)
+		Tensor(std::unique_ptr<T[]> arr, std::unique_ptr<uint32_t[]> shape, bool grad=false)
 			: storage_size(N), bgrad(grad)
 		{
 			for(size_t i=0; i < N; i++) { this->storage[i] = arr[i]; }
@@ -142,18 +139,10 @@ class Tensor {
 		template<typename... Args>
 		Tensor operator()(Args... args) {
 			assert( sizeof...(args) <= M && sizeof...(args) > 0);
-			std::initializer_list<uint32_t> tmp = std::initializer_list<uint32_t>{args...}; 
+			const uint64_t nsize = shape.strides[sizeof...(args)-1]; 
+			const std::initializer_list<uint32_t> tmp {args...}; 
 
-			uint32_t i=0;
-			std::array<uint32_t, M> idxs;
-			idxs.fill(0);
-			for(const auto& x : tmp) {
-				assert(x <= this->shape.view[i]-1);
-				idxs[i] = this->shape.strides[i]*x;
-				i++;
-			}
-
-			const uint64_t startidx = std::accumulate(std::begin(idxs), std::end(idxs), 0);
+			const uint64_t startidx = this->accumulate(tmp);
 
 			if(tmp.size() < M) {
 				const uint64_t endidx = startidx + this->shape.strides[tmp.size()-1]; 
@@ -161,14 +150,15 @@ class Tensor {
 				for(size_t i=startidx; i<=endidx; i++) {
 					data[i-startidx] = this->storage[i];
 				}
-				uint32_t* new_dimm = std::make_unique<uint32_t[]>(M-tmp.size();
+				std::unique_ptr<uint32_t[]> new_dimm = std::make_unique<uint32_t[]>(M-tmp.size());
 				for(size_t i=tmp.size(); i<M; i++) {
 					new_dimm[i-tmp.size()] = this->shape.view[i];	
 				}
+				Tensor<T, nsize, sizeof(new_dimm)/sizeof(new_dimm[0])> ret(data, new_dimm);
 				return ret;
 
 			} else {
-				std::unique_ptr<t[]> data = std::make_unique<T[]>(1);
+				std::unique_ptr<T[]> data = std::make_unique<T[]>(1);
 				data[0] = this->storage[startidx];
 				const Tensor<T, 1, 1> ret(data, {1});
 				return ret;
@@ -188,6 +178,16 @@ class Tensor {
 		}
 
 	private:
+		constexpr uint64_t accumulate(const std::initializer_list<uint32_t> arr) {
+			uint32_t i = 0;
+			uint64_t acc = 0; 
+			for(const auto& x : arr) {
+				assert(x <= this->shape.view[i]-1);
+				acc += this->shape.strides[i]*x;
+				i++;
+			}
+			return acc;
+		}
 };
 
 
