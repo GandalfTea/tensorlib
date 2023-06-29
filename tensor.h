@@ -101,73 +101,66 @@ class ShapeTracker {
 };
 
 
-template<typename T, size_t N, size_t M>
+template<typename T>
 class Tensor {
 
 	std::unique_ptr<T[]> storage = nullptr;
 	std::unique_ptr<View> shape = nullptr;
+	std::unique_ptr<Tensor<T>> grad = nullptr;
 
-	uint64_t storage_size;
   Device device = GPU;
+	uint64_t size;
 	bool bgrad;
 
 	public:
 		// This is for users for simpler Tensor initialization
-		Tensor(T arr[N], const std::initializer_list<uint32_t> shape, bool grad = false) 
-			: storage_size(N), bgrad(grad)
-		{ 
-			for(size_t i=0; i < N; i++) { this->storage[i] = arr[i]; }
+		Tensor(std::unique_ptr<T[]> arr, const std::initializer_list<uint32_t> shape, bool grad = false) 
+			: size(sizeof(arr)/sizeof(T), storage(arr), shape(View(shape)) bgrad(grad)
+		{};
 
-			uint32_t i = 0;
-			std::unique_ptr<uint32_t[]> newshp = std::make_unique<uint32_t[]>(shape.size());
-			for(const auto x : shape) { newshp[i] = x; i++; }
-			this->shape.reshape(newshp);
-		};
-
-		// This is used internally, as there is no way to transform a C array
-		// into an initializer_list with variable number of elements
+		// This is mostly used internally, as there is no way to transform 
+		// a C array into an initializer_list with variable number of elements
 		Tensor(std::unique_ptr<T[]> arr, std::unique_ptr<uint32_t[]> shape, bool grad=false)
 			: storage_size(N), bgrad(grad)
 		{
-			for(size_t i=0; i < N; i++) { this->storage[i] = arr[i]; }
+			this->shape = View();
 			this->shape.reshape(shape);
 		}
 
 		// Indexing into a Tensor always returns another Tensor
+		// TODO: shape.ndim could be nullptr
 		template<typename... Args>
-		Tensor operator()(Args... args) {
-			assert( sizeof...(args) <= M && sizeof...(args) > 0);
-			const uint64_t nsize = shape.strides[sizeof...(args)-1]; 
+		Tensor<T> operator()(Args... args) {
+			assert( sizeof...(args) <= this->shape.ndim() && sizeof...(args) > 0);
 			const std::initializer_list<uint32_t> tmp {args...}; 
 
 			const uint64_t startidx = this->accumulate(tmp);
 
-			if(tmp.size() < M) {
+			if(tmp.size() < this->shape.ndim()) {
 				const uint64_t endidx = startidx + this->shape.strides[tmp.size()-1]; 
 				std::unique_ptr<T[]> data = std::make_unique<T[]>(endidx-startidx);
 				for(size_t i=startidx; i<=endidx; i++) {
 					data[i-startidx] = this->storage[i];
 				}
-				std::unique_ptr<uint32_t[]> new_dimm = std::make_unique<uint32_t[]>(M-tmp.size());
-				for(size_t i=tmp.size(); i<M; i++) {
+				std::unique_ptr<uint32_t[]> new_dimm = std::make_unique<uint32_t[]>(this->shape.ndim()-tmp.size());
+				for(size_t i=tmp.size(); i<this->shape.ndim(); i++) {
 					new_dimm[i-tmp.size()] = this->shape.view[i];	
 				}
-				Tensor<T, nsize, sizeof(new_dimm)/sizeof(new_dimm[0])> ret(data, new_dimm);
+				Tensor<T> ret(data, new_dimm);
 				return ret;
 
 			} else {
 				std::unique_ptr<T[]> data = std::make_unique<T[]>(1);
 				data[0] = this->storage[startidx];
-				const Tensor<T, 1, 1> ret(data, {1});
+				Tensor<T> ret(data, {1});
 				return ret;
 			}
 		}
 
-		std::array<T, N> data() {
-			return this->storage;
-		}
+		// TODO: This might allow for unwanted changes to the data. Maybe clone?
+		std::unique_ptr<T[]> data() { return this->storage; }
+		std::unique_ptr<uint32_t[]> get_shape() { return this->shape.view; }
 
-		std::array<uint32_t, M> get_shape() { return this->shape.view; }
 		Device get_device() { return this->device; }
 
 		bool reshape(std::unique_ptr<uint32_t[]> &nview) {
@@ -176,6 +169,7 @@ class Tensor {
 		}
 
 	private:
+
 		constexpr uint64_t accumulate(const std::initializer_list<uint32_t> arr) {
 			uint32_t i = 0;
 			uint64_t acc = 0; 
