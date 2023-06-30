@@ -11,7 +11,7 @@
 
 #define TENSOR_MAX_DIM (2 << 15)
 #define TENSOR_MAX_STORAGE_SIZE UINT_MAX 
-#define DEBUG 1
+#define DEBUG 0
 
 // debug
 #include <iostream>
@@ -41,17 +41,10 @@ struct tensor_shape_array {
 
 
 struct View {
-	std::unique_ptr<uint32_t[]> view = nullptr;
-	std::unique_ptr<uint32_t[]> strides = nullptr;
+	std::shared_ptr<uint32_t[]> view = nullptr;
+	std::shared_ptr<uint32_t[]> strides = nullptr;
 
 	View(std::initializer_list<uint32_t> argview, uint64_t t=0) {
-#if DEBUG > 0
-		std::cout << "Constructing VIEW with ( ";
-		for(const auto x : argview) {
-			std::cout << x << " ";
-		}
-		std::cout << " ) and total size " << t << std::endl;
-#endif
 		assert(argview.size() <= TENSOR_MAX_DIM);
 		assert(t <= TENSOR_MAX_STORAGE_SIZE);
 		this->numdim = argview.size();
@@ -219,13 +212,6 @@ class Tensor {
 				for(size_t i=tmp.size(); i < this->shape->ndim(); i++) {
 					shape.ptr[i-tmp.size()] = this->shape->view[i];	
 				}
-#if DEBUG > 0
-				std::cout << "\n Return tensor dim : (";
-				for(size_t i=0; i < this->shape->ndim()-tmp.size(); i++) {
-					std::cout << shape.ptr[i] << " ";
-				}
-				std::cout << " )" << std::endl;
-#endif
 				Tensor<T> ret(data, endidx-startidx, shape);
 				return ret;
 
@@ -242,7 +228,11 @@ class Tensor {
 		std::unique_ptr<T[]> data() { return this->storage; }
 		std::shared_ptr<uint32_t[]> get_shape() { 
 			assert(!!this->shape->view);
-			return std::move(this->shape->view); 
+			std::shared_ptr<uint32_t[]> ret = this->shape->view;
+			return ret; 
+		}
+		uint32_t ndim() {
+			return this->shape->ndim();
 		}
 
 		Device get_device() { return this->device; }
@@ -263,10 +253,9 @@ class Tensor {
 	protected:
 
 		uint64_t accumulate(const std::initializer_list<uint32_t> arr) {
-			std::cout << *(this->shape.get()) << std::endl;
 			uint32_t i = 0;
 			uint64_t acc = 0; 
-			std::cout << !!this->shape->view << std::endl;
+
 			for(const auto x : arr) {
 				assert(x <= this->shape->view[i]);
 				acc += this->shape->strides[i]*x;
@@ -284,7 +273,7 @@ template<typename T>
 inline std::ostream& operator<<(std::ostream& outs, Tensor<T>& tensor) {
 	std::string repr = "<Tensor (";
 	auto shape = tensor.get_shape();
-	for(size_t i=0; i < sizeof(shape)/4-1; i++) {
+	for(size_t i=0; i < tensor.ndim(); i++) {
 		repr += std::to_string(shape[i]);
 		repr += ", ";
 	}
