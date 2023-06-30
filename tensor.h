@@ -39,6 +39,11 @@ struct View {
 	std::unique_ptr<uint32_t[]> strides = nullptr;
 
 	View(std::initializer_list<uint32_t> argview, uint64_t t=0) {
+		std::cout << "Constructing VIEW with ( ";
+		for(const auto x : argview) {
+			std::cout << x << " ";
+		}
+		std::cout << " ) and total size " << t << std::endl;
 		assert(argview.size() <= TENSOR_MAX_DIM);
 		assert(t <= TENSOR_MAX_STORAGE_SIZE);
 		this->numdim = argview.size();
@@ -131,17 +136,19 @@ class Tensor {
 	std::unique_ptr<Tensor<T>> grad = nullptr;
 
   Device device;
-	uint64_t size;
+	uint64_t size = 0;
 	bool bgrad;
 
 	public:
-		Tensor(std::unique_ptr<T[]> &arr, std::initializer_list<uint32_t> shape, bool grad=false, Device device=GPU) 
-			: size(sizeof(arr)/sizeof(T)), storage(std::move(arr)), shape(std::make_unique<View>(View(shape, this->size))),
+		Tensor(std::unique_ptr<T[]> &arr, uint32_t size, std::initializer_list<uint32_t> shape, bool grad=false, Device device=GPU) 
+			: size(size), storage(std::move(arr)), shape(std::make_unique<View>(View(shape, size))),
 				bgrad(grad), device(device)
-		{};
+		{
+			std::cout << "SIZE: " << size << " - " << this->size << std::endl;
+		};
 
-		Tensor(std::initializer_list<T> &arr, std::initializer_list<uint32_t> shape, bool grad=false, Device device=GPU)
-			: size(arr.size()), shape(std::make_unique<View>(View(shape, this->size))), bgrad(grad), device(device)
+		Tensor(std::initializer_list<T> &arr, uint32_t size, std::initializer_list<uint32_t> shape, bool grad=false, Device device=GPU)
+			: size(size), shape(std::make_unique<View>(View(shape, size))), bgrad(grad), device(device)
 		{
 			std::unique_ptr<T> narr = std::make_unique<T>(arr.size());
 			uint32_t i = 0;
@@ -155,10 +162,10 @@ class Tensor {
 
 		// This is mostly used internally, as there is no way to transform 
 		// a C array into an initializer_list with variable number of elements
-		Tensor(std::unique_ptr<T[]> &arr, std::unique_ptr<uint32_t[]> &shape, bool grad=false, Device device=GPU)
-			: size(sizeof(arr)/sizeof(T)), storage(std::move(arr)), bgrad(grad), device(device)
+		Tensor(std::unique_ptr<T[]> &arr, uint32_t size, std::unique_ptr<uint32_t[]> &shape, bool grad=false, Device device=GPU)
+			: size(size), storage(std::move(arr)), bgrad(grad), device(device)
 		{
-			this->shape = std::make_unique<View>(View({0}, this->size));
+			this->shape = std::make_unique<View>(View({0}, size));
 			this->shape->reshape(shape);
 		}
 
@@ -183,13 +190,13 @@ class Tensor {
 				for(size_t i=tmp.size(); i < this->shape->ndim(); i++) {
 					new_dimm[i-tmp.size()] = this->shape->view[i];	
 				}
-				Tensor<T> ret(data, new_dimm);
+				Tensor<T> ret(data, endidx-startidx, new_dimm);
 				return ret;
 
 			} else {
 				std::unique_ptr<T[]> data = std::make_unique<T[]>(1);
 				data[0] = this->storage[startidx];
-				Tensor<T> ret(data, {1});
+				Tensor<T> ret(data, 1, {1});
 				return ret;
 			}
 		}
@@ -213,8 +220,11 @@ class Tensor {
 		constexpr uint64_t accumulate(const std::initializer_list<uint32_t> arr) {
 			uint32_t i = 0;
 			uint64_t acc = 0; 
-			for(const auto& x : arr) {
-				assert(x <= this->shape->view[i]-1);
+			std::cout << !!this->shape->view << std::endl;
+			for(const auto x : arr) {
+				std::cout << x << std::endl;
+				assert(this->shape->view);
+				assert(x <= this->shape->view[i]);
 				acc += this->shape->strides[i]*x;
 				i++;
 			}
