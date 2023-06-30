@@ -2,14 +2,15 @@
 #ifndef TENSOR
 #define TENSOR
 
-#define TENSOR_MAX_DIM 2 << 15
-#define TENSOR_MAX_STORAGE_SIZE 2 << 63 
-
 #include <array>
+#include <limits.h>
 #include <memory>
 #include <numeric>
 #include <cassert>
 #include <initializer_list>
+
+#define TENSOR_MAX_DIM (2 << 15)
+#define TENSOR_MAX_STORAGE_SIZE UINT_MAX 
 
 // debug
 #include <iostream>
@@ -37,25 +38,46 @@ struct View {
 	std::unique_ptr<uint32_t[]> view = nullptr;
 	std::unique_ptr<uint32_t[]> strides = nullptr;
 
-	View(std::initializer_list<uint32_t> argview) {
-
+	View(std::initializer_list<uint32_t> argview, uint64_t t=0) {
 		assert(argview.size() <= TENSOR_MAX_DIM);
+		assert(t <= TENSOR_MAX_STORAGE_SIZE);
 		this->numdim = argview.size();
+		this->total = t;
 
 		uint8_t i = 0;
-		std::unique_ptr<uint32_t[]> nview = std::make_unique<uint32_t[]>(argview.size());
+		this->view = std::make_unique<uint32_t[]>(argview.size());
 		for(const auto& x : argview) {
-			nview[i] = x;
+			this->view[i] = x;
 			i++;
 		}
-		this->view = nview;
 		this->restride();
 	}
 
-	void reshape(std::unique_ptr<uint32_t[]> &argview) {
-		assert(sizeof(argview)/4 == this->numdim && !(sizeof(argview)/4 > TENSOR_MAX_DIM)); // always 4 bytes
-		this->view = nullptr; // Not sure if this is needed
-		this->view = argview;
+	void reshape(std::initializer_list<uint32_t> argview) {
+		assert(!argview.size() > TENSOR_MAX_DIM); 
+		uint64_t product = 0;
+		for(const auto& x : argview) { product *= x; }
+		assert(product == this->total);
+
+		this->view = std::make_unique<uint32_t[]>(argview.size());
+		uint32_t i = 0;
+		for(const auto& x : argview) {
+			this->view[i] = x;
+			i++;
+		}
+		this->restride();
+	}
+
+	void reshape(const std::unique_ptr<uint32_t[]> &argview) {
+		assert(!sizeof(argview)/4 > TENSOR_MAX_DIM); 
+		uint64_t product = 0;
+		for(size_t i=0; i < sizeof(argview)/4; i++) { product *= argview[i]; }
+		assert(product == this->total);
+
+		this->view = std::make_unique<uint32_t[]>(sizeof(argview)/4);
+		for(size_t i=0; i < sizeof(argview)/4; i++) {
+			this->view[i] = argview[i];
+		}
 		this->restride();
 	}
 
@@ -65,15 +87,15 @@ struct View {
 
 	private:
 		uint32_t numdim = 0;
+		uint64_t total = 0;
 
 		void restride() {
-			auto tmp = std::make_unique<uint32_t[]>(this->numdim);
-			for(size_t i=0; i <= numdim; i++) { tmp[i]=1; }
+			this->strides = std::make_unique<uint32_t[]>(this->numdim);
+			for(size_t i=0; i <= numdim; i++) { this->strides[i]=1; }
 			for(size_t i=this->numdim; i > 0; i--) {
 				if(i==this->numdim) continue;	
-				tmp[i-1] = tmp[i] * view[i];
+				this->strides[i-1] = this->strides[i] * view[i];
 			}	
-			this->strides = tmp;
 		}
 };
 
@@ -88,7 +110,7 @@ class ShapeTracker {
 		[ ] broadcast and permute
 	*/
 	public:
-		struct View<M> view;
+		struct View view;
 		size_t size;
 
 	private:
@@ -104,47 +126,62 @@ class ShapeTracker {
 template<typename T>
 class Tensor {
 
-	std::unique_ptr<T[]> storage = nullptr;
+	std::shared_ptr<T[]> storage = nullptr;
 	std::unique_ptr<View> shape = nullptr;
 	std::unique_ptr<Tensor<T>> grad = nullptr;
 
-  Device device = GPU;
+  Device device;
 	uint64_t size;
 	bool bgrad;
 
 	public:
-		// This is for users for simpler Tensor initialization
-		Tensor(std::unique_ptr<T[]> arr, const std::initializer_list<uint32_t> shape, bool grad = false) 
-			: size(sizeof(arr)/sizeof(T), storage(arr), shape(View(shape)) bgrad(grad)
+		Tensor(std::unique_ptr<T[]> &arr, std::initializer_list<uint32_t> shape, bool grad=false, Device device=GPU) 
+			: size(sizeof(arr)/sizeof(T)), storage(std::move(arr)), shape(std::make_unique<View>(View(shape, this->size))),
+				bgrad(grad), device(device)
 		{};
+
+		Tensor(std::initializer_list<T> &arr, std::initializer_list<uint32_t> shape, bool grad=false, Device device=GPU)
+			: size(arr.size()), shape(std::make_unique<View>(View(shape, this->size))), bgrad(grad), device(device)
+		{
+			std::unique_ptr<T> narr = std::make_unique<T>(arr.size());
+			uint32_t i = 0;
+			for(const auto& x : arr) {
+				narr[i] = x;
+				i++;
+			}
+			this->storage = std::move(narr);
+		};
+			
 
 		// This is mostly used internally, as there is no way to transform 
 		// a C array into an initializer_list with variable number of elements
-		Tensor(std::unique_ptr<T[]> arr, std::unique_ptr<uint32_t[]> shape, bool grad=false)
-			: storage_size(N), bgrad(grad)
+		Tensor(std::unique_ptr<T[]> &arr, std::unique_ptr<uint32_t[]> &shape, bool grad=false, Device device=GPU)
+			: size(sizeof(arr)/sizeof(T)), storage(std::move(arr)), bgrad(grad), device(device)
 		{
-			this->shape = View();
-			this->shape.reshape(shape);
+			this->shape = std::make_unique<View>(View({0}, this->size));
+			this->shape->reshape(shape);
 		}
+
 
 		// Indexing into a Tensor always returns another Tensor
 		// TODO: shape.ndim could be nullptr
 		template<typename... Args>
 		Tensor<T> operator()(Args... args) {
-			assert( sizeof...(args) <= this->shape.ndim() && sizeof...(args) > 0);
+			assert(this->shape->ndim());
+			assert(sizeof...(args) <= this->shape->ndim() && sizeof...(args) > 0);
 			const std::initializer_list<uint32_t> tmp {args...}; 
 
 			const uint64_t startidx = this->accumulate(tmp);
 
-			if(tmp.size() < this->shape.ndim()) {
-				const uint64_t endidx = startidx + this->shape.strides[tmp.size()-1]; 
+			if(tmp.size() < this->shape->ndim()) {
+				const uint64_t endidx = startidx + this->shape->strides[tmp.size()-1]; 
 				std::unique_ptr<T[]> data = std::make_unique<T[]>(endidx-startidx);
 				for(size_t i=startidx; i<=endidx; i++) {
 					data[i-startidx] = this->storage[i];
 				}
-				std::unique_ptr<uint32_t[]> new_dimm = std::make_unique<uint32_t[]>(this->shape.ndim()-tmp.size());
-				for(size_t i=tmp.size(); i<this->shape.ndim(); i++) {
-					new_dimm[i-tmp.size()] = this->shape.view[i];	
+				std::unique_ptr<uint32_t[]> new_dimm = std::make_unique<uint32_t[]>(this->shape->ndim()-tmp.size());
+				for(size_t i=tmp.size(); i < this->shape->ndim(); i++) {
+					new_dimm[i-tmp.size()] = this->shape->view[i];	
 				}
 				Tensor<T> ret(data, new_dimm);
 				return ret;
@@ -159,12 +196,15 @@ class Tensor {
 
 		// TODO: This might allow for unwanted changes to the data. Maybe clone?
 		std::unique_ptr<T[]> data() { return this->storage; }
-		std::unique_ptr<uint32_t[]> get_shape() { return this->shape.view; }
+		std::shared_ptr<uint32_t[]> get_shape() { 
+			assert(this->shape->view);
+			return std::move(this->shape->view); 
+		}
 
 		Device get_device() { return this->device; }
 
 		bool reshape(std::unique_ptr<uint32_t[]> &nview) {
-			this->shape.reshape(nview);
+			this->shape->reshape(nview);
 			return 0;
 		}
 
@@ -174,8 +214,8 @@ class Tensor {
 			uint32_t i = 0;
 			uint64_t acc = 0; 
 			for(const auto& x : arr) {
-				assert(x <= this->shape.view[i]-1);
-				acc += this->shape.strides[i]*x;
+				assert(x <= this->shape->view[i]-1);
+				acc += this->shape->strides[i]*x;
 				i++;
 			}
 			return acc;
@@ -186,11 +226,12 @@ class Tensor {
 
 // OUTPUT REPR 
 
-template<typename T, size_t N, size_t M>
-inline std::ostream& operator<<(std::ostream& outs, Tensor<T, N, M>& tensor) {
+template<typename T>
+inline std::ostream& operator<<(std::ostream& outs, Tensor<T>& tensor) {
 	std::string repr = "<Tensor (";
-	for(const auto x : tensor.get_shape()) {
-		repr += std::to_string(x);
+	auto shape = tensor.get_shape();
+	for(size_t i=0; i < sizeof(shape)/4-1; i++) {
+		repr += std::to_string(shape[i]);
 		repr += ", ";
 	}
 	repr += ") on ";
@@ -199,28 +240,16 @@ inline std::ostream& operator<<(std::ostream& outs, Tensor<T, N, M>& tensor) {
 	return outs << repr;
 }
 
-
-template<typename T, size_t N>
-inline std::ostream& operator<<(std::ostream& outs, std::array<T, N> arr) {
-	std::string repr = "";
-	for(const auto x : arr) {
-		repr += std::to_string(x);
-		repr += " ";
-	}
-	return outs << repr;
-}
-
-
-template<uint32_t M>
-inline std::ostream& operator<<(std::ostream& outs, View<M>& view) {
+// TODO: Pointer decay
+inline std::ostream& operator<<(std::ostream& outs, View& view) {
 	std::string repr = "View[(";
-	for(const auto x : view.view) {
-		repr += std::to_string(x);
+	for(size_t i=0; i <= sizeof(view.view)/4; i++) {
+		repr += std::to_string(view.view[i]);
 		repr += ", ";
 	}
 	repr += "), (";
-	for(const auto x : view.strides) {
-		repr += std::to_string(x);
+	for(size_t i=0; i <= sizeof(view.strides)/4; i++) {
+		repr += std::to_string(view.strides[i]);
 		repr += ", ";
 	}
 	uint64_t size = view.strides[0] * view.view[0] * 32;
