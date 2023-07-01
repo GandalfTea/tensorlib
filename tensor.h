@@ -59,27 +59,13 @@ struct View {
 		this->restride();
 	}
 
-	void reshape(std::initializer_list<uint32_t> argview) {
-		assert(!(argview.size() > TENSOR_MAX_DIM)); 
-		uint64_t product = 1;
-		for(const auto& x : argview) { product *= x; }
-		assert(product == this->total);
-
-		this->view = std::make_unique<uint32_t[]>(argview.size());
-		uint32_t i = 0;
-		for(const auto& x : argview) {
-			this->view[i] = x;
-			i++;
-		}
-		this->restride();
-	}
-
 	void reshape(std::shared_ptr<uint32_t[]> &argview, size_t &newdim) {
 		assert(newdim < TENSOR_MAX_DIM);
 		uint64_t product = 1;
 		for(size_t i=0; i < newdim; i++) { product *= argview[i]; }
 		assert(product == this->total);
 
+		this->numdim = newdim;
 		this->view = std::make_unique<uint32_t[]>(newdim);
 		for(size_t i=0; i < newdim; i++) {
 			this->view[i] = argview[i];
@@ -112,7 +98,7 @@ inline std::ostream& operator<<(std::ostream& outs, View& view) {
 		repr += ", ";
 	}
 	repr += "), (";
-	for(size_t i=0; i <= view.ndim()-1; i++) {
+	for(size_t i=0; i < view.ndim()-1; i++) {
 		repr += std::to_string(view.strides[i]);
 		repr += ", ";
 	}
@@ -155,9 +141,10 @@ class Tensor {
 	std::shared_ptr<View> shape = nullptr;
 	std::unique_ptr<Tensor<T>> grad = nullptr;
 
-  Device device;
-	uint64_t size = 0;
-	bool bgrad;
+	public : 
+  	Device device;
+		uint64_t size = 0;
+		bool bgrad;
 
 	public:
 		Tensor(std::unique_ptr<T[]> &arr, uint32_t size, std::initializer_list<uint32_t> shape, bool grad=false, Device device=GPU) 
@@ -168,12 +155,9 @@ class Tensor {
 		Tensor(std::initializer_list<T> &arr, uint32_t size, std::initializer_list<uint32_t> shape, bool grad=false, Device device=GPU)
 			: size(size), shape(std::make_unique<View>(View(shape, size))), bgrad(grad), device(device)
 		{
-			std::unique_ptr<T> narr = std::make_unique<T>(arr.size());
+			std::unique_ptr<T[]> narr = std::make_unique<T[]>(arr.size());
 			uint32_t i = 0;
-			for(const auto& x : arr) {
-				narr[i] = x;
-				i++;
-			}
+			for(const auto& x : arr) { narr[i] = x; i++; }
 			this->storage = std::move(narr);
 		};
 			
@@ -225,7 +209,7 @@ class Tensor {
 
 
 		// TODO: This might allow for unwanted changes to the data. Maybe clone?
-		std::unique_ptr<T[]> data() { return this->storage; }
+		std::shared_ptr<T[]> data() { return this->storage; }
 		std::shared_ptr<uint32_t[]> get_shape() { 
 			assert(!!this->shape->view);
 			std::shared_ptr<uint32_t[]> ret = this->shape->view;
