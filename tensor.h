@@ -59,6 +59,8 @@ struct View {
 		this->restride();
 	}
 
+	// Most of the Movement OPs take in C arrays because they are also used internally.
+
 	void reshape(std::shared_ptr<uint32_t[]> &argview, size_t &newdim) {
 		assert(newdim < TENSOR_MAX_DIM);
 		uint64_t product = 1;
@@ -71,6 +73,32 @@ struct View {
 			this->view[i] = argview[i];
 		}
 		this->restride();
+	}
+
+	void permute(std::shared_ptr<uint32_t[]> &idxs, size_t &len) {
+		assert(len == this->numdim && "Invalid number of dimensions in permute()");	
+		std::shared_ptr<uint32_t[]> newview = std::make_unique<uint32_t[]>(len);
+		std::shared_ptr<uint32_t[]> newstride = std::make_unique<uint32_t[]>(len);
+		for(size_t i=0; i < len; i++) {
+			assert(idxs[i] < this->numdim);
+			newview[i] = this->view[idxs[i]];	
+			newstride[i] = this->stride[idxs[i]];
+		}
+		this->view = newview;
+		this->strides = newstrides;
+	}
+
+	// For now we don't support new dimensions.
+	void expand(std::shared_ptr<uint32_t[]> &argview, size_t &len) {
+		assert(len == this->numdim && "Invalid number of dimensions in expand()");	
+		for(size_t i=0; i < len; i++) {
+			if(argview[i] != this->view[i] && this->view[i] == 1) {
+				this->strides[i] = 0;
+			} else if (argview[i] != this->view[i]) {
+				throw std::invalid_argument("Cannot expand dimension " + 
+							std::to_string(this->view[i]) + " into " + std::to_string(argview[i]));
+			}
+		}
 	}
 
 	uint32_t ndim() {
@@ -111,26 +139,9 @@ inline std::ostream& operator<<(std::ostream& outs, View& view) {
 }
 
 
-template<uint32_t M>
 class ShapeTracker {
-
-	//friend class Tensor;
-	/*
-		[ ] store multiple views
-		[ ] store original shape
-		[ ] broadcast and permute
-	*/
 	public:
 		struct View view;
-		size_t size;
-
-	private:
-		bool is_valid_view(std::initializer_list<uint32_t> shape) {
-			uint32_t p = 1;
-			for(const uint32_t& i : shape) { p *= i; }
-			if(this->storage_size % p == 0) return 1;	
-			else return 0;
-		}
 };
 
 
