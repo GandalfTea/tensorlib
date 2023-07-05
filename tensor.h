@@ -20,23 +20,25 @@ using std::size_t;
 
 namespace tensor {
 
-enum MovementOps {
-	RESHAPE,
-	PERMUTE,
-	EXPAND,
-	PAD,
-	SHRINK,
-	STRIDE
-};
-
 enum Device {
 	GPU,
 	CPU
 };
 
-struct tensor_shape_array {
-	std::shared_ptr<uint32_t[]> ptr = nullptr;
+template<typename T>
+struct sized_array {
+	std::shared_ptr<T[]> ptr = nullptr;
 	size_t size = 0;
+};
+
+// TODO: Maybe use enum class?
+typedef enum OPRet {
+	SUCCESSFUL,
+	INVALID_ARGUMENTS,
+	MEMORY_ALLOCATION_ERROR,
+	ILLEGAL_DIMENSIONALITY,
+	GLOBAL_LIMIT_EXCEDED,
+	UNEXPECTED_ERROR,
 };
 
 
@@ -61,11 +63,11 @@ struct View {
 
 	// Most of the Movement OPs take in C arrays because they are also used internally.
 
-	void reshape(std::shared_ptr<uint32_t[]> &argview, size_t &newdim) {
-		assert(newdim < TENSOR_MAX_DIM);
+	OPRet reshape(std::shared_ptr<uint32_t[]> &argview, size_t &newdim) {
+		if(newdim >= TENSOR_MAX_DIM) return GLOBAL_LIMIT_EXCEDED;
 		uint64_t product = 1;
 		for(size_t i=0; i < newdim; i++) { product *= argview[i]; }
-		assert(product == this->total);
+		if(product != this->total) return INVALID_ARGUMENTS;
 
 		this->numdim = newdim;
 		this->view = std::make_unique<uint32_t[]>(newdim);
@@ -73,36 +75,46 @@ struct View {
 			this->view[i] = argview[i];
 		}
 		this->restride();
+		return SUCCESSFUL;
 	}
 
-	void permute(std::shared_ptr<uint32_t[]> &idxs, size_t &len) {
-		assert(len == this->numdim && "Invalid number of dimensions in permute()");	
+	OPRet permute(std::shared_ptr<uint32_t[]> &idxs, size_t &len) {
+		if(len != this->numdim) return INVALID_DIMENSIONALITY;
 		std::shared_ptr<uint32_t[]> newview = std::make_unique<uint32_t[]>(len);
 		std::shared_ptr<uint32_t[]> newstride = std::make_unique<uint32_t[]>(len);
 		for(size_t i=0; i < len; i++) {
-			assert(idxs[i] < this->numdim);
+			if(idxs[i] >= this->numdim) return INVALID_ARGUMENTS;
 			newview[i] = this->view[idxs[i]];	
 			newstride[i] = this->stride[idxs[i]];
 		}
 		this->view = newview;
 		this->strides = newstrides;
+		return SUCCESSFUL;
 	}
 
 	// For now we don't support new dimensions.
-	void expand(std::shared_ptr<uint32_t[]> &argview, size_t &len) {
-		assert(len == this->numdim && "Invalid number of dimensions in expand()");	
+	OPRet expand(std::shared_ptr<uint32_t[]> &argview, size_t &len) {
+		if(len != this->numdim) return INVALID_DIMENSIONALITY;
 		for(size_t i=0; i < len; i++) {
-			if(argview[i] != this->view[i] && this->view[i] == 1) {
-				this->strides[i] = 0;
-			} else if (argview[i] != this->view[i]) {
-				throw std::invalid_argument("Cannot expand dimension " + 
-							std::to_string(this->view[i]) + " into " + std::to_string(argview[i]));
+			if(argview[i] != this->view[i]) {
+				if(this->view[i] == 1) {
+					this->strides[i] = 0;
+				} else {
+					return INVALID_ARGUMENTS;
+				}
 			}
 		}
 	}
 
+	// TODO:  Implement SHRINK and PAD
+
+
 	uint32_t ndim() {
 		return this->numdim;
+	}
+
+	uint64_t telem() {
+		return this->total;
 	}
 
 	private:
@@ -139,10 +151,6 @@ inline std::ostream& operator<<(std::ostream& outs, View& view) {
 }
 
 
-class ShapeTracker {
-	public:
-		struct View view;
-};
 
 
 template<typename T>
@@ -171,19 +179,15 @@ class Tensor {
 			for(const auto& x : arr) { narr[i] = x; i++; }
 			this->storage = std::move(narr);
 		};
-			
 
-		// This is mostly used internally, as there is no way to transform 
-		// a C array into an initializer_list with variable number of elements
-		Tensor(std::unique_ptr<T[]> &arr, uint32_t size, tensor_shape_array shape, bool grad=false, Device device=GPU)
+		// Mostly for internal use
+		Tensor(std::unique_ptr<T[]> &arr, uint32_t size, sized_array<uint32_t> shape, bool grad=false, Device device=GPU)
 			: size(size), storage(std::move(arr)), bgrad(grad), device(device)
 		{
 			this->shape = std::make_unique<View>(View({1, size}, size));
 			this->shape->reshape(shape.ptr, shape.size);
 		}
 
-
-		// Indexing into a Tensor always returns another Tensor
 		// TODO: shape.ndim could be nullptr
 		template<typename... Args>
 		Tensor<T> operator()(Args... args) {
@@ -200,7 +204,7 @@ class Tensor {
 					data[i-startidx] = this->storage[i];
 				}
 
-				tensor_shape_array shape;
+				sized_array<uint32_t> shape;
 				shape.ptr = std::make_unique<uint32_t[]>(this->shape->ndim()-tmp.size());
 				shape.size = this->shape->ndim()-tmp.size();
 
@@ -218,22 +222,8 @@ class Tensor {
 			}
 		}
 
-
-		// TODO: This might allow for unwanted changes to the data. Maybe clone?
-		std::shared_ptr<T[]> data() { return this->storage; }
-		std::shared_ptr<uint32_t[]> get_shape() { 
-			assert(!!this->shape->view);
-			std::shared_ptr<uint32_t[]> ret = this->shape->view;
-			return ret; 
-		}
-		uint32_t ndim() {
-			return this->shape->ndim();
-		}
-
-		Device get_device() { return this->device; }
-
 		bool reshape(std::initializer_list<uint32_t> nview) {
-			tensor_shape_array shape;
+			sized_array<uint32_t> shape;
 			shape.size = nview.size();
 			shape.ptr = std::make_unique<uint32_t[]>(nview.size());
 			uint32_t i = 0;
@@ -244,6 +234,20 @@ class Tensor {
 			this->shape->reshape(shape.ptr, shape.size);
 			return 0;
 		}
+
+
+		// TODO: These might allow for unwanted changes to the data. Maybe clone?
+
+		std::shared_ptr<T[]> data() { return this->storage; }
+		Device get_device() { return this->device; }
+		uint32_t ndim() { return this->shape->ndim(); }
+
+		std::shared_ptr<uint32_t[]> get_shape() { 
+			assert(!!this->shape->view);
+			std::shared_ptr<uint32_t[]> ret = this->shape->view;
+			return ret; 
+		}
+
 
 	protected:
 
