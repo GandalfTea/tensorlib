@@ -1,4 +1,4 @@
 
 try.cc
 a.exe
-*.cc
+test/test_tensor_indexing_with_pytorch.cc
