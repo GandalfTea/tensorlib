@@ -32,11 +32,11 @@ struct sized_array {
 };
 
 // TODO: Maybe use enum class?
-typedef enum OPRet {
+enum OPRet {
 	SUCCESSFUL,
 	INVALID_ARGUMENTS,
 	MEMORY_ALLOCATION_ERROR,
-	ILLEGAL_DIMENSIONALITY,
+	INVALID_DIMENSIONALITY,
 	GLOBAL_LIMIT_EXCEDED,
 	UNEXPECTED_ERROR,
 };
@@ -81,11 +81,11 @@ struct View {
 	OPRet permute(std::shared_ptr<uint32_t[]> &idxs, size_t &len) {
 		if(len != this->numdim) return INVALID_DIMENSIONALITY;
 		std::shared_ptr<uint32_t[]> newview = std::make_unique<uint32_t[]>(len);
-		std::shared_ptr<uint32_t[]> newstride = std::make_unique<uint32_t[]>(len);
+		std::shared_ptr<uint32_t[]> newstrides = std::make_unique<uint32_t[]>(len);
 		for(size_t i=0; i < len; i++) {
 			if(idxs[i] >= this->numdim) return INVALID_ARGUMENTS;
 			newview[i] = this->view[idxs[i]];	
-			newstride[i] = this->stride[idxs[i]];
+			newstrides[i] = this->strides[idxs[i]];
 		}
 		this->view = newview;
 		this->strides = newstrides;
@@ -239,7 +239,6 @@ class Tensor {
 		// TODO: These might allow for unwanted changes to the data. Maybe clone?
 
 		std::shared_ptr<T[]> data() { return this->storage; }
-		Device get_device() { return this->device; }
 		uint32_t ndim() { return this->shape->ndim(); }
 
 		std::shared_ptr<uint32_t[]> get_shape() { 
