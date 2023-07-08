@@ -1,0 +1,21 @@
+
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  testview:
+    name: Test View Class
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    -name: Install Compiler
+     uses: sudo-apt get install g++
+    -name: Compile Test
+     uses: g++ ./test/test_view.cc -I ../
+    -name: Run
+     uses: ./test/a
