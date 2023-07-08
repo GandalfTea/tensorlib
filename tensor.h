@@ -46,18 +46,22 @@ struct View {
 	std::shared_ptr<uint32_t[]> view = nullptr;
 	std::shared_ptr<uint32_t[]> strides = nullptr;
 
-	View(std::initializer_list<uint32_t> argview, uint64_t t=0) {
+	View(std::initializer_list<uint32_t> argview) {
 		assert(argview.size() <= TENSOR_MAX_DIM);
-		assert(t <= TENSOR_MAX_STORAGE_SIZE);
 		this->numdim = argview.size();
-		this->total = t;
 
 		uint8_t i = 0;
+		uint64_t sum = 1;
 		this->view = std::make_unique<uint32_t[]>(argview.size());
 		for(const auto& x : argview) {
 			this->view[i] = x;
+			sum *= x;
 			i++;
 		}
+		if(sum > TENSOR_MAX_STORAGE_SIZE) {
+			throw std::runtime_error("Number of elements in Tensor exceeds TENSOR_MAX_STORAGE_SIZE.");
+		}
+		this->total = sum;
 		this->restride();
 	}
 
@@ -121,13 +125,14 @@ struct View {
 		uint32_t numdim = 0;
 		uint64_t total = 0;
 
-		void restride() {
+		OPRet restride() {
 			this->strides = std::make_unique<uint32_t[]>(this->numdim);
 			for(size_t i=0; i <= numdim; i++) { this->strides[i]=1; }
 			for(size_t i=this->numdim; i > 0; i--) {
 				if(i==this->numdim) continue;	
 				this->strides[i-1] = this->strides[i] * view[i];
 			}	
+			return SUCCESSFUL;
 		}
 };
 
@@ -167,12 +172,12 @@ class Tensor {
 
 	public:
 		Tensor(std::unique_ptr<T[]> &arr, uint32_t size, std::initializer_list<uint32_t> shape, bool grad=false, Device device=GPU) 
-			: size(size), storage(std::move(arr)), shape(std::make_unique<View>(View(shape, size))),
+			: size(size), storage(std::move(arr)), shape(std::make_unique<View>(View(shape))),
 				bgrad(grad), device(device)
 		{};
 
 		Tensor(std::initializer_list<T> &arr, uint32_t size, std::initializer_list<uint32_t> shape, bool grad=false, Device device=GPU)
-			: size(size), shape(std::make_unique<View>(View(shape, size))), bgrad(grad), device(device)
+			: size(size), shape(std::make_unique<View>(View(shape))), bgrad(grad), device(device)
 		{
 			std::unique_ptr<T[]> narr = std::make_unique<T[]>(arr.size());
 			uint32_t i = 0;
@@ -184,7 +189,7 @@ class Tensor {
 		Tensor(std::unique_ptr<T[]> &arr, uint32_t size, sized_array<uint32_t> shape, bool grad=false, Device device=GPU)
 			: size(size), storage(std::move(arr)), bgrad(grad), device(device)
 		{
-			this->shape = std::make_unique<View>(View({1, size}, size));
+			this->shape = std::make_unique<View>(View({1}));
 			this->shape->reshape(shape.ptr, shape.size);
 		}
 

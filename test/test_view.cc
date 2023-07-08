@@ -8,14 +8,10 @@ using namespace tensor;
 
 TEST_CASE("Test View Creation", "[core]") {
 
-	SECTION("Null View") {
-		CHECK_THROWS(View a = View());
-	}
-
 	SECTION("One Element View {512, }") {
 		std::initializer_list<uint32_t> cv = {512};
 		std::initializer_list<uint32_t> cs = {1};
-		View a = View({512}, 512);	
+		View a = View({512});	
 
 		CHECK(a.view);
 		CHECK(a.strides);
@@ -37,7 +33,7 @@ TEST_CASE("Test View Creation", "[core]") {
 	SECTION("Normal View {2, 2, 512}") {
 		std::initializer_list<uint32_t> cv = {2, 2, 512};
 		std::initializer_list<uint32_t> cs = {1024, 512, 1};
-		View a = View({2, 2, 512}, 512*2*2);	
+		View a = View({2, 2, 512});	
 
 		CHECK(a.view);
 		CHECK(a.strides);
@@ -57,7 +53,7 @@ TEST_CASE("Test View Creation", "[core]") {
 	}
 
 	SECTION("TENSOR_MAX_STORAGE_SIZE Fail") {
-		CHECK_THROWS(View({1}, UINT_MAX+10));	
+		CHECK_THROWS(View({UINT_MAX, UINT_MAX}));	
 	}
 
 	SECTION("TENSOR_MAX_DIM Fail") {
