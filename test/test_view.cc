@@ -7,18 +7,9 @@
 using namespace tensor;
 
 TEST_CASE("Test View Creation", "[core]") {
+
 	SECTION("Null View") {
-		View a = View();
-		CHECK_FALSE(a.view);
-		CHECK_FALSE(a.strides);
-		CHECK(a.ndim() == 0);
-		CHECK(a.telem() == 0);
-		std::shared_ptr<uint32_t[]> dummy = std::make_unique<uint32_t[]>(1);
-		dummy[0] = 1;
-		size_t dim = 1;
-		CHECK(a.reshape(dummy, dim) == VIEW_NOT_INITIALIZED);
-		CHECK(a.permute(dummy, dim) == VIEW_NOT_INITIALIZED);
-		CHECK(a.expand(dummy, dim)  == VIEW_NOT_INITIALIZED);
+		CHECK_THROWS(View a = View());
 	}
 
 	SECTION("One Element View {512, }") {
