@@ -102,12 +102,14 @@ struct View {
 		for(size_t i=0; i < len; i++) {
 			if(argview[i] != this->view[i]) {
 				if(this->view[i] == 1) {
+					this->view[i] = argview[i];
 					this->strides[i] = 0;
 				} else {
 					return INVALID_ARGUMENTS;
 				}
 			}
 		}
+		return SUCCESSFUL;
 	}
 
 	// TODO:  Implement SHRINK and PAD
