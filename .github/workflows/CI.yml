@@ -23,3 +23,16 @@ jobs:
       run: g++ test/test_view.cc -I ./ 
     - name: Run
       run: ./a.out
+
+  testtensor:
+    name: Test Tensor Class
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps: 
+    - name: Checkout Code
+      uses: actions/checkout@v3
+    - name: Compile Test
+      run: g++ test/test_tensor.cc -I ./ 
+    - name: Run
+      run: ./a.out
