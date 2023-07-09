@@ -13,9 +13,9 @@ jobs:
     timeout-minutes: 5
 
     steps:
-    -name: Install Compiler
-     uses: sudo apt-get install g++
-    -name: Compile Test
-     uses: g++ ./test/test_view.cc -I ../
-    -name: Run
-     uses: ./test/a
+    - name: Install Compiler
+      uses: sudo apt-get install g++
+    - name: Compile Test
+      uses: g++ ./test/test_view.cc -I ../
+    - name: Run
+      uses: ./test/a
