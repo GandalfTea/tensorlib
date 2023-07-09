@@ -22,4 +22,4 @@ jobs:
     - name: Compile Test
       run: g++ test/test_view.cc -I ./ 
     - name: Run
-      run: test/a.out
+      run: a.out
