@@ -16,10 +16,10 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v3
     - name: Install Compiler
-      uses: |
+       run: |
         sudo apt-get update
         sudo apt-get install g++
     - name: Compile Test
-      uses: g++ test/test_view.cc -I /
+       run: g++ test/test_view.cc -I /
     - name: Run
-      uses: test/a.out
+       run: test/a.out
