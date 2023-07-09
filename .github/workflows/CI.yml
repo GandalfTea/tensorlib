@@ -20,4 +20,4 @@ jobs:
     - name: Compile Test
       uses: g++ test/test_view.cc -I ../
     - name: Run
-      uses: test/a
+      uses: test/a.out
