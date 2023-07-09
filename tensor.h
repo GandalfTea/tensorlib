@@ -176,7 +176,11 @@ class Tensor {
 		Tensor(std::unique_ptr<T[]> &arr, uint32_t size, std::initializer_list<uint32_t> shape, bool grad=false, Device device=GPU) 
 			: size(size), storage(std::move(arr)), shape(std::make_unique<View>(View(shape))),
 				bgrad(grad), device(device)
-		{};
+		{
+			if(this->shape->telem() != size) {
+				throw std::runtime_error("Invalid Tensor Shape.");
+			}
+		};
 
 		Tensor(std::initializer_list<T> &arr, uint32_t size, std::initializer_list<uint32_t> shape, bool grad=false, Device device=GPU)
 			: size(size), shape(std::make_unique<View>(View(shape))), bgrad(grad), device(device)
