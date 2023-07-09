@@ -14,7 +14,9 @@ jobs:
 
     steps:
     - name: Install Compiler
-      uses: sudo apt-get install g++
+      uses: |
+        sudo apt-get update
+        sudo apt-get install g++
     - name: Compile Test
       uses: g++ ./test/test_view.cc -I ../
     - name: Run
