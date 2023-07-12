@@ -36,3 +36,16 @@ jobs:
       run: g++ test/test_tensor.cc -I ./ 
     - name: Run
       run: ./a.out
+
+  againstpytorch:
+    name : Check element indexing against PyTorch
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+    - name: Compile Test
+      run: g++ test/test_tensor_indexing_with_pytorch.cc -I ./ 
+    - name: Run
+      run: ./a.out
