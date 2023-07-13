@@ -10,7 +10,7 @@ using namespace tensor;
 TEST_CASE("Benchmarks") {
 	SECTION("Constructors and Destructors") {
 
-		int N = 2048; 
+		uint32_t N = 2048; 
 		std::unique_ptr<float[]> data = std::make_unique<float[]>(N*N);
 		for(size_t i=0; i < N*N; i++) { data[i]=i; }
 		std::initializer_list<uint32_t> shape = {N, N};
@@ -59,5 +59,22 @@ TEST_CASE("Benchmarks") {
 			meter.measure( [&](int i) {storage[i].destruct(); });
 		};
 	}	
+
+	SECTION("Movement OPs") {
+		int N = 4096;
+		std::unique_ptr<float[]> data = std::make_unique<float[]>(N*N);
+		for(size_t i=0; i < N*N; i++) { data[i]=i; }
+		Tensor<float> a(data, N*N, {N, N});
+		BENCHMARK("Reshape "+std::to_string(N)+","+std::to_string(N)+" -> "+std::to_string(N/2)+",2,"+std::to_string(N/2)+",2") {
+			return a.reshape({N/2, 2, N/2, 2});
+		};
+		BENCHMARK("Permute "+std::to_string(N/2)+",2,"+std::to_string(N/2)+",2"+" -> 2, 2,"+std::to_string(N/2)+","+std::to_string(N/2)) {
+			return a.permute({1, 3, 0, 2});
+		};
+		a.reshape({N, N , 1});
+		BENCHMARK("Expand "+std::to_string(N)+","+std::to_string(N)+",1"+" -> "+std::to_string(N)+","+std::to_string(N)+",5") {
+			return a.expand({N, N, 5});
+		};
+	}
 }
 
