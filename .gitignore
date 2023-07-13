@@ -1,4 +1,4 @@
 
 try.cc
 a.exe
-test/generate_tensor_tests_from_pytorch.py
+test/*.py
