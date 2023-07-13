@@ -20,10 +20,6 @@ using std::size_t;
 
 namespace tensor {
 
-enum Device {
-	GPU,
-	CPU
-};
 
 template<typename T>
 struct sized_array {
@@ -31,16 +27,20 @@ struct sized_array {
 	size_t size = 0;
 };
 
-// TODO: Maybe use enum class?
-enum OPRet {
+typedef enum {
 	SUCCESSFUL,
 	INVALID_ARGUMENTS,
 	MEMORY_ALLOCATION_ERROR,
 	INVALID_DIMENSIONALITY,
 	GLOBAL_LIMIT_EXCEDED,
 	UNEXPECTED_ERROR,
-};
+} OPRet;
 
+typedef enum {
+	RESHAPE,
+	PERMUTE,
+	EXPAND,
+} MovementOPs;
 
 struct View {
 	std::shared_ptr<uint32_t[]> view = nullptr;
@@ -159,13 +159,29 @@ inline std::ostream& operator<<(std::ostream& outs, View& view) {
 
 
 
+typedef enum {
+	GPU,
+	CPU
+} Device;
+
+typedef enum {
+	INVALID_SHAPE_OPERATION,
+	MEMORY_ALLOCATION_FAILURE,
+} TensorError;
+
+class TensorException : public std::exception {
+	public:
+		TensorError err;
+		const char* msg;
+		TensorException(TensorError err, const char* msg) : err(err), msg(msg) {}
+};
 
 template<typename T>
 class Tensor {
 
 	std::shared_ptr<T[]> storage = nullptr;
 	std::shared_ptr<View> shape = nullptr;
-	std::unique_ptr<Tensor<T>> grad = nullptr;
+	//std::unique_ptr<Tensor<T>> grad = nullptr;
 
 	public : 
   	Device device;
@@ -199,7 +215,7 @@ class Tensor {
 			this->shape->reshape(shape.ptr, shape.size);
 		}
 
-		// TODO: shape.ndim could be nullptr
+		// Movement OPs
 		template<typename... Args>
 		Tensor<T> operator()(Args... args) {
 			assert(this->shape->ndim());
@@ -233,18 +249,9 @@ class Tensor {
 			}
 		}
 
-		bool reshape(std::initializer_list<uint32_t> nview) {
-			sized_array<uint32_t> shape;
-			shape.size = nview.size();
-			shape.ptr = std::make_unique<uint32_t[]>(nview.size());
-			uint32_t i = 0;
-			for(const auto& x : nview) {
-				shape.ptr[i] = x;	
-				i++;
-			}
-			this->shape->reshape(shape.ptr, shape.size);
-			return 0;
-		}
+		bool reshape(std::initializer_list<uint32_t> nview) { return this->execute_movement_op(nview, RESHAPE); }
+		bool permute(std::initializer_list<uint32_t> nview) { return this->execute_movement_op(nview, PERMUTE); }
+		bool expand(std::initializer_list<uint32_t> nview) { return this->execute_movement_op(nview, EXPAND); }
 
 
 		// TODO: These might allow for unwanted changes to the data. Maybe clone?
@@ -260,6 +267,43 @@ class Tensor {
 
 
 	protected:
+
+		bool execute_movement_op(std::initializer_list<uint32_t> nview, MovementOPs op) {
+			sized_array<uint32_t> shape;
+			shape.size = nview.size();
+			shape.ptr = std::make_unique<uint32_t[]>(nview.size());
+			uint32_t i = 0;
+			for(const auto& x : nview) {
+				shape.ptr[i] = x;	
+				i++;
+			}
+			OPRet ret;
+			switch(op) {
+				case RESHAPE:
+					ret = this->shape->reshape(shape.ptr, shape.size);
+					break;
+				case PERMUTE:
+					ret = this->shape->permute(shape.ptr, shape.size);
+					break;
+				case EXPAND:
+					ret = this->shape->expand(shape.ptr, shape.size);
+			}
+			switch(ret) {
+				case SUCCESSFUL:
+					return 1;
+				case INVALID_ARGUMENTS:
+					throw TensorException(INVALID_SHAPE_OPERATION, "Invalid Arguments in function permute().");
+					return 0;
+				case INVALID_DIMENSIONALITY:
+					throw TensorException(INVALID_SHAPE_OPERATION, "Invalid Dimensions given for function permute().");
+					return 0;
+				case GLOBAL_LIMIT_EXCEDED:
+					throw TensorException(INVALID_SHAPE_OPERATION, "Global tensor size restriction exceeded in function reshape().");
+					return 0;
+				default:
+					return 0;
+			}
+		}
 
 		uint64_t accumulate(const std::initializer_list<uint32_t> arr) {
 			uint32_t i = 0;
