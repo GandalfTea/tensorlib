@@ -259,7 +259,7 @@ TEST_CASE("Tensor OPs", "[core]") {
 			for(auto const& x : st) { CHECK(a.strides()[i] == x); i++; }
 		}
 
-		SECTION("Stringify") {
+		SECTION("Stringify Row") {
 			CHECK_NOTHROW(a.reshape({N*N, 1}));
 			std::initializer_list<uint32_t> tsp = {N*N, 1};
 			std::initializer_list<uint32_t> tst = {1, 1};
@@ -267,10 +267,12 @@ TEST_CASE("Tensor OPs", "[core]") {
 			for(const auto& x : tsp) { CHECK(a.view()[i] == x); i++; }
 			i=0;
 			for(auto const& x : tst) { CHECK(a.strides()[i] == x); i++; }
+		}
 
+		SECTION("Stringify Collumn") {
 			CHECK_NOTHROW(a.reshape({1, N*N}));
-			tsp = {1, N*N};
-			tst = {N*N, 1};
+			std::initializer_list<uint32_t> tsp = {1, N*N};
+			std::initializer_list<uint32_t> tst = {N*N, 1};
 			i=0;
 			for(const auto& x : tsp) { CHECK(a.view()[i] == x); i++; }
 			i=0;
