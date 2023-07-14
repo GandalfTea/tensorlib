@@ -331,7 +331,56 @@ TEST_CASE("Tensor OPs", "[core]") {
 	}
 
 	SECTION("Permute") {
+		std::unique_ptr<float[]> data = std::make_unique<float[]>(N*2);
+		std::initializer_list<uint32_t> sp = {N, 2, 1};
+		std::initializer_list<uint32_t> st = {2, 1, 1};
+		for(size_t i=0; i < N*2; i++) { data[i]=i; }
+		Tensor<float> a(data, N*2, sp);
+		uint32_t i = 0;
 
+		SECTION("Correct") {
+			CHECK_NOTHROW(a.permute({1, 2, 0}));	
+			std::initializer_list<uint32_t> tsp1 = {2, 1, N};
+			std::initializer_list<uint32_t> tst1 = {N, N, 1};
+			i=0;
+			for(const auto& x : tsp1) { CHECK(a.view()[i] == x); i++; }
+			i=0;
+			for(auto const& x : tst1) { CHECK(a.strides()[i] == x); i++; }
+
+			CHECK_NOTHROW(a.permute({1, 2, 0}));	
+			std::initializer_list<uint32_t> tsp2 = {1, N, 2};
+			std::initializer_list<uint32_t> tst2 = {N*2, 2, 1};
+			i=0;
+			for(const auto& x : tsp2) { CHECK(a.view()[i] == x); i++; }
+			i=0;
+			for(auto const& x : tst2) { CHECK(a.strides()[i] == x); i++; }
+		}
+
+		SECTION("Invalid dimension idx") {
+			CHECK_THROWS(a.permute({3, 0, 1}));	
+			i=0;
+			for(const auto& x : sp) { CHECK(a.view()[i] == x); i++; }
+			i=0;
+			for(auto const& x : st) { CHECK(a.strides()[i] == x); i++; }
+		}
+
+		SECTION("Repeting dimensions") {
+			/*
+			CHECK_THROWS(a.permute({0, 0, 1}));
+			i=0;
+			for(const auto& x : sp) { CHECK(a.view()[i] == x); i++; }
+			i=0;
+			for(auto const& x : st) { CHECK(a.strides()[i] == x); i++; }
+			*/
+		}
+
+		SECTION("Invalid number of dimensions") {
+			CHECK_THROWS(a.permute({1, 0}));
+			i=0;
+			for(const auto& x : sp) { CHECK(a.view()[i] == x); i++; }
+			i=0;
+			for(auto const& x : st) { CHECK(a.strides()[i] == x); i++; }
+		}
 	}
 }
 
