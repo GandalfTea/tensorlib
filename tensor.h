@@ -70,7 +70,10 @@ struct View {
 	OPRet reshape(std::shared_ptr<uint32_t[]> &argview, size_t &newdim) {
 		if(newdim >= TENSOR_MAX_DIM) return GLOBAL_LIMIT_EXCEDED;
 		uint64_t product = 1;
-		for(size_t i=0; i < newdim; i++) { product *= argview[i]; }
+		for(size_t i=0; i < newdim; i++) { 
+			if(argview[i] == 0) return INVALID_ARGUMENTS;
+			product *= argview[i]; 
+		}
 		if(product != this->total) return INVALID_ARGUMENTS;
 
 		this->numdim = newdim;
@@ -259,10 +262,19 @@ class Tensor {
 		std::shared_ptr<T[]> data() { return this->storage; }
 		uint32_t ndim() { return this->shape->ndim(); }
 
-		std::shared_ptr<uint32_t[]> get_shape() { 
+		// TODO: Somehow protect this from changes
+		// Maybe make shape a unique_ptr or smth
+
+		std::shared_ptr<uint32_t[]> view() { 
 			assert(!!this->shape->view);
 			std::shared_ptr<uint32_t[]> ret = this->shape->view;
 			return ret; 
+		}
+
+		std::shared_ptr<uint32_t[]> strides() {
+			assert(!!this->shape->strides);
+			std::shared_ptr<uint32_t[]> ret = this->shape->strides;
+			return ret;
 		}
 
 
