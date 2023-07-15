@@ -341,7 +341,7 @@ TEST_CASE("Tensor OPs", "[core]") {
 		SECTION("Correct") {
 			CHECK_NOTHROW(a.permute({1, 2, 0}));	
 			std::initializer_list<uint32_t> tsp1 = {2, 1, N};
-			std::initializer_list<uint32_t> tst1 = {N, N, 1};
+			std::initializer_list<uint32_t> tst1 = {1, 1, 2};
 			i=0;
 			for(const auto& x : tsp1) { CHECK(a.view()[i] == x); i++; }
 			i=0;
@@ -349,7 +349,7 @@ TEST_CASE("Tensor OPs", "[core]") {
 
 			CHECK_NOTHROW(a.permute({1, 2, 0}));	
 			std::initializer_list<uint32_t> tsp2 = {1, N, 2};
-			std::initializer_list<uint32_t> tst2 = {N*2, 2, 1};
+			std::initializer_list<uint32_t> tst2 = {1, 2, 1};
 			i=0;
 			for(const auto& x : tsp2) { CHECK(a.view()[i] == x); i++; }
 			i=0;
