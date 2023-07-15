@@ -193,7 +193,7 @@ class Tensor {
 		bool bgrad;
 
 	public:
-		Tensor(std::unique_ptr<T[]> &arr, uint32_t size, std::initializer_list<uint32_t> shape, bool grad=false, Device device=GPU) 
+		Tensor(std::unique_ptr<T[]> &arr, uint32_t size, std::initializer_list<uint32_t> shape, bool grad=false, Device device=CPU) 
 			: size(size), storage(std::move(arr)), shape(std::make_unique<View>(View(shape))),
 				bgrad(grad), device(device)
 		{
@@ -202,17 +202,20 @@ class Tensor {
 			}
 		};
 
-		Tensor(std::initializer_list<T> &arr, uint32_t size, std::initializer_list<uint32_t> shape, bool grad=false, Device device=GPU)
+		Tensor(std::initializer_list<T> arr, uint32_t size, std::initializer_list<uint32_t> shape, bool grad=false, Device device=CPU)
 			: size(size), shape(std::make_unique<View>(View(shape))), bgrad(grad), device(device)
 		{
 			std::unique_ptr<T[]> narr = std::make_unique<T[]>(arr.size());
 			uint32_t i = 0;
 			for(const auto& x : arr) { narr[i] = x; i++; }
 			this->storage = std::move(narr);
+			if(this->shape->telem() != size) {
+				throw std::runtime_error("Invalid Tensor Shape.");
+			}
 		};
 
 		// Mostly for internal use
-		Tensor(std::unique_ptr<T[]> &arr, uint32_t size, sized_array<uint32_t> shape, bool grad=false, Device device=GPU)
+		Tensor(std::unique_ptr<T[]> &arr, uint32_t size, sized_array<uint32_t> shape, bool grad=false, Device device=CPU)
 			: size(size), storage(std::move(arr)), bgrad(grad), device(device)
 		{
 			this->shape = std::make_unique<View>(View({1}));
