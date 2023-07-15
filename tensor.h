@@ -116,7 +116,7 @@ struct View {
 		return SUCCESSFUL;
 	}
 
-	// TODO:  Implement SHRINK and PAD
+	// TODO:  Implement SHRINK, FLIP and PAD
 
 
 	uint32_t ndim() {
@@ -218,7 +218,7 @@ class Tensor {
 		Tensor(std::unique_ptr<T[]> &arr, uint32_t size, sized_array<uint32_t> shape, bool grad=false, Device device=CPU)
 			: size(size), storage(std::move(arr)), bgrad(grad), device(device)
 		{
-			this->shape = std::make_unique<View>(View({1}));
+			this->shape = std::make_unique<View>(View({size}));
 			this->shape->reshape(shape.ptr, shape.size);
 			if(this->shape->telem() != size) {
 				throw std::runtime_error("Invalid Tensor Shape.");
