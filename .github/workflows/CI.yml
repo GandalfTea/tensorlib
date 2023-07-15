@@ -27,7 +27,7 @@ jobs:
   testtensor:
     name: Test Tensor Class
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
 
     steps: 
     - name: Checkout Code
@@ -38,14 +38,14 @@ jobs:
       run: ./a.out
 
   againstpytorch:
-    name : Check element indexing against PyTorch
+    name : Element Indexing VS PyTorch
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     steps:
     - name: Checkout Code
       uses: actions/checkout@v3
     - name: Compile Test
-      run: g++ test/test_tensor_indexing_with_pytorch.cc -I ./ 
+      run: g++ test/test_tensor_indexing_with_pytorch_element.cc -I ./ 
     - name: Run
       run: ./a.out
