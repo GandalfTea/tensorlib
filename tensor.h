@@ -88,13 +88,15 @@ struct View {
 	OPRet permute(std::shared_ptr<uint32_t[]> &idxs, size_t &len) {
 		if(len != this->numdim) return INVALID_DIMENSIONALITY;
 		std::shared_ptr<uint32_t[]> newview = std::make_unique<uint32_t[]>(len);
+		std::shared_ptr<uint32_t[]> newstrides = std::make_unique<uint32_t[]>(len);
 		//TODO: Do not allow repeat dims
 		for(size_t i=0; i < len; i++) {
 			if(idxs[i] >= this->numdim) return INVALID_ARGUMENTS;
 			newview[i] = this->view[idxs[i]];	
+			newstrides[i] = this->strides[idxs[i]];
 		}
 		this->view = newview;
-		this->restride();
+		this->strides = newstrides;
 		return SUCCESSFUL;
 	}
 
