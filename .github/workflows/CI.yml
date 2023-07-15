@@ -37,7 +37,7 @@ jobs:
     - name: Run
       run: ./a.out
 
-  againstpytorch:
+  elementvspytorch:
     name : Element Indexing VS PyTorch
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -49,3 +49,16 @@ jobs:
       run: g++ test/test_tensor_indexing_with_pytorch_element.cc -I ./ 
     - name: Run
       run: ./a.out
+
+  bulkvspytorch:
+    name: Bulk Indexing VS PyTorch
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+    - name: Compile Test
+      run:  g++ test/test_tensor_indexing_with_pytorch.cc -I ./ 
+    - name: Run
+      run:  ./a.out
