@@ -220,6 +220,9 @@ class Tensor {
 		{
 			this->shape = std::make_unique<View>(View({1}));
 			this->shape->reshape(shape.ptr, shape.size);
+			if(this->shape->telem() != size) {
+				throw std::runtime_error("Invalid Tensor Shape.");
+			}
 		}
 
 		// Movement OPs
@@ -326,7 +329,7 @@ class Tensor {
 			uint64_t acc = 0; 
 
 			for(const auto x : arr) {
-				assert(x <= this->shape->view[i]);
+				if(x >= this->shape->view[i]) throw TensorException(INVALID_SHAPE_OPERATION, "Index out of bounds.");
 				acc += this->shape->strides[i]*x;
 				i++;
 			}
