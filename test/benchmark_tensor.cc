@@ -7,21 +7,57 @@
 
 using namespace tensor;
 
+void create_tensor_2048x2048_float32() {
+	std::unique_ptr<float[]> data = std::make_unique<float[]>(2048*2048);
+	for(size_t i=0; i < 2048*2048; i++) { data[i]=i; }
+	Tensor<float> a(data, 2048*2048, {2048, 2048});
+}
+
+void create_tensor_4096x4096_float32() {
+	std::unique_ptr<float[]> data = std::make_unique<float[]>(4096*4096);
+	for(size_t i=0; i < 4096*4096; i++) { data[i]=0.f; }
+	Tensor<float> a(data, 4096*4096, {4096, 4096});
+}
+
 TEST_CASE("Benchmarks") {
+	SECTION("Full initialization") {
+		BENCHMARK(std::to_string(2048)+"x"+std::to_string(2048)+" float32 initialization") {
+			create_tensor_2048x2048_float32();
+		};
+		BENCHMARK(std::to_string(4096)+"x"+std::to_string(4096)+" float32 initialization") {
+			create_tensor_4096x4096_float32();
+		};
+	}
+
 	SECTION("Constructors and Destructors") {
 
 		uint32_t N = 2048; 
 		std::unique_ptr<float[]> data = std::make_unique<float[]>(N*N);
 		for(size_t i=0; i < N*N; i++) { data[i]=i; }
 		std::initializer_list<uint32_t> shape = {N, N};
-		BENCHMARK_ADVANCED(std::to_string(N)+"x"+std::to_string(N)+" float construction")(Catch::Benchmark::Chronometer meter) {
+		BENCHMARK_ADVANCED(std::to_string(N)+"x"+std::to_string(N)+" float32 construction")(Catch::Benchmark::Chronometer meter) {
 			std::vector<Catch::Benchmark::storage_for<Tensor<float>>> storage(meter.runs());
 			meter.measure([&](int i) { storage[i].construct(data, N*N, shape); });
 		};
-		BENCHMARK_ADVANCED(std::to_string(N)+"x"+std::to_string(N)+" float destruction")(Catch::Benchmark::Chronometer meter) {
+		BENCHMARK_ADVANCED(std::to_string(N)+"x"+std::to_string(N)+" float32 destruction")(Catch::Benchmark::Chronometer meter) {
 			std::vector<Catch::Benchmark::destructable_object<Tensor<float>>> storage(meter.runs());
 			for(auto&& o : storage) {
 				o.construct(data, N*N, shape);
+			}
+			meter.measure( [&](int i) {storage[i].destruct(); });
+		};
+
+		std::unique_ptr<double[]> data2 = std::make_unique<double[]>(N*N);
+		for(size_t i=0; i < N*N; i++) { data2[i]=i; }
+		shape = {N, N};
+		BENCHMARK_ADVANCED(std::to_string(N)+"x"+std::to_string(N)+" float64 construction")(Catch::Benchmark::Chronometer meter) {
+			std::vector<Catch::Benchmark::storage_for<Tensor<double>>> storage(meter.runs());
+			meter.measure([&](int i) { storage[i].construct(data2, N*N, shape); });
+		};
+		BENCHMARK_ADVANCED(std::to_string(N)+"x"+std::to_string(N)+" float64 destruction")(Catch::Benchmark::Chronometer meter) {
+			std::vector<Catch::Benchmark::destructable_object<Tensor<double>>> storage(meter.runs());
+			for(auto&& o : storage) {
+				o.construct(data2, N*N, shape);
 			}
 			meter.measure( [&](int i) {storage[i].destruct(); });
 		};
