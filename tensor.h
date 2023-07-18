@@ -2,6 +2,7 @@
 #ifndef TENSOR
 #define TENSOR
 
+#include <memory>
 #include <limits.h>
 #include <initializer_list>
 
@@ -217,6 +218,29 @@ class Tensor {
 				throw std::runtime_error("Invalid Tensor Shape.");
 			}
 		}
+
+		// Constructor helpers
+
+		void fill(T v) {
+			if(this->storage) { throw std::runtime_error("Cannot fill initialized Tensor."); }
+			std::unique_ptr<T[]> strg = std::make_unique<T[]>(1);
+			strg[0]=v;
+			this->storage = std::move(strg);
+			std::shared_ptr<uint32_t[]> str = std::make_unique<uint32_t[]>(this->shape->ndim());
+			for(size_t i=0; i < this->shape->ndim(); i++) {
+				str[i] = 0;	
+			}
+			this->strides = strides;
+		}
+
+		void eye() {}
+		void arange() {}
+		void randn() {}
+
+		// Move semantics
+		
+		static void like() {}
+		void operator=(Tensor<T>& rhs) {}
 
 		// Movement OPs
 		template<typename... Args>
