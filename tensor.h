@@ -220,16 +220,16 @@ class Tensor {
 
 		void eye() {}
 
-		// Tensor<float> a = Tensor.randn({40, 40});
+		// Tensor<float> a = Tensor<float>::randn({40, 40});
 		static Tensor<T> randn(std::initializer_list<uint32_t> shp, T up=1.f, T down=0.f, 
 										       uint32_t seed=0, Device device=CPU) 
 		{
 			uint64_t numel = 1;
 			for(const auto& x : shp) numel *= x;
 			std::unique_ptr<T[]> data = std::make_unique<T[]>(numel);
-			uint32_t range = std::abs(up)+std::abs(down);
+			T range = std::abs(up)+std::abs(down);
 			if(seed!=0) std::srand(seed);
-			for(size_t i=0; i < numel; i++) { data[i] = rand() % range - down;	}
+			for(size_t i=0; i < numel; i++) { data[i] = down + (std::rand()/(RAND_MAX/(up-down)));	}
 			return Tensor<T>(data, numel, shp, device);
 		}
 
