@@ -8,15 +8,37 @@
 using namespace tensor;
 
 TEST_CASE("Tensor Constructor", "[core]") {
+
+	SECTION("Test virtual tensor constructor") {
+		Tensor<float> a({N, N});
+		CHECK(!a.data());
+		CHECK(!a.is_initialized);
+		CHECK(a.strides());
+		CHECK(a.view());
+		CHECK(a.size == 0);
+		CHECK(a.ndim()==2);
+		CHECK(a.device == CPU);
+		std::initializer_list<uint32_t> shp = {N, N};
+		std::shared_ptr<uint32_t[]> cshp = a.view();
+		uint32_t i=0;
+		for(const auto &x : shp) {
+			CHECK(cshp[i] == x);
+			i++;
+		}
+	}
+
 	SECTION("Test unique_ptr constructor") { 
 		SECTION("Correct") {
 			SECTION("uint8_t") {
 				std::unique_ptr<uint8_t[]> data = std::make_unique<uint8_t[]>(N);
 				for(size_t i=0; i < N; i++) { data[i]=i; }
 				Tensor<uint8_t> a(data, N, {2, 2, N/4});
+				CHECK(a.is_initialized);
 				CHECK(a.device == CPU);
 				CHECK(a.size == N);
 				CHECK(a.data());
+				CHECK(a.strides());
+				CHECK(a.view());
 				CHECK(a.ndim() == 3);
 				std::initializer_list<uint32_t> c = {2, 2, N/4};
 				std::shared_ptr<uint32_t[]> shp = a.view();
@@ -30,9 +52,12 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				std::unique_ptr<uint16_t[]> data = std::make_unique<uint16_t[]>(N);
 				for(size_t i=0; i < N; i++) { data[i]=i; }
 				Tensor<uint16_t> a(data, N, {2, 2, N/4});
+				CHECK(a.is_initialized);
 				CHECK(a.device == CPU);
 				CHECK(a.size == N);
 				CHECK(a.data());
+				CHECK(a.strides());
+				CHECK(a.view());
 				CHECK(a.ndim() == 3);
 				std::initializer_list<uint32_t> c = {2, 2, N/4};
 				std::shared_ptr<uint32_t[]> shp = a.view();
@@ -46,9 +71,12 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				std::unique_ptr<uint32_t[]> data = std::make_unique<uint32_t[]>(N);
 				for(size_t i=0; i < N; i++) { data[i]=i; }
 				Tensor<uint32_t> a(data, N, {2, 2, N/4});
+				CHECK(a.is_initialized);
 				CHECK(a.device == CPU);
 				CHECK(a.size == N);
 				CHECK(a.data());
+				CHECK(a.strides());
+				CHECK(a.view());
 				CHECK(a.ndim() == 3);
 				std::initializer_list<uint32_t> c = {2, 2, N/4};
 				std::shared_ptr<uint32_t[]> shp = a.view();
@@ -62,9 +90,12 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				std::unique_ptr<uint64_t[]> data = std::make_unique<uint64_t[]>(N);
 				for(size_t i=0; i < N; i++) { data[i]=i; }
 				Tensor<uint64_t> a(data, N, {2, 2, N/4});
+				CHECK(a.is_initialized);
 				CHECK(a.device == CPU);
 				CHECK(a.size == N);
 				CHECK(a.data());
+				CHECK(a.strides());
+				CHECK(a.view());
 				CHECK(a.ndim() == 3);
 				std::initializer_list<uint32_t> c = {2, 2, N/4};
 				std::shared_ptr<uint32_t[]> shp = a.view();
@@ -78,9 +109,12 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				std::unique_ptr<int8_t[]> data = std::make_unique<int8_t[]>(N);
 				for(size_t i=0; i < N; i++) { data[i]=i; }
 				Tensor<int8_t> a(data, N, {2, 2, N/4});
+				CHECK(a.is_initialized);
 				CHECK(a.device == CPU);
 				CHECK(a.size == N);
 				CHECK(a.data());
+				CHECK(a.strides());
+				CHECK(a.view());
 				CHECK(a.ndim() == 3);
 				std::initializer_list<uint32_t> c = {2, 2, N/4};
 				std::shared_ptr<uint32_t[]> shp = a.view();
@@ -94,9 +128,12 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				std::unique_ptr<int16_t[]> data = std::make_unique<int16_t[]>(N);
 				for(size_t i=0; i < N; i++) { data[i]=i; }
 				Tensor<int16_t> a(data, N, {2, 2, N/4});
+				CHECK(a.is_initialized);
 				CHECK(a.device == CPU);
 				CHECK(a.size == N);
 				CHECK(a.data());
+				CHECK(a.strides());
+				CHECK(a.view());
 				CHECK(a.ndim() == 3);
 				std::initializer_list<uint32_t> c = {2, 2, N/4};
 				std::shared_ptr<uint32_t[]> shp = a.view();
@@ -110,9 +147,12 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				std::unique_ptr<int32_t[]> data = std::make_unique<int32_t[]>(N);
 				for(size_t i=0; i < N; i++) { data[i]=i; }
 				Tensor<int32_t> a(data, N, {2, 2, N/4});
+				CHECK(a.is_initialized);
 				CHECK(a.device == CPU);
 				CHECK(a.size == N);
 				CHECK(a.data());
+				CHECK(a.strides());
+				CHECK(a.view());
 				CHECK(a.ndim() == 3);
 				std::initializer_list<uint32_t> c = {2, 2, N/4};
 				std::shared_ptr<uint32_t[]> shp = a.view();
@@ -126,9 +166,12 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				std::unique_ptr<int64_t[]> data = std::make_unique<int64_t[]>(N);
 				for(size_t i=0; i < N; i++) { data[i]=i; }
 				Tensor<int64_t> a(data, N, {2, 2, N/4});
+				CHECK(a.is_initialized);
 				CHECK(a.device == CPU);
 				CHECK(a.size == N);
 				CHECK(a.data());
+				CHECK(a.strides());
+				CHECK(a.view());
 				CHECK(a.ndim() == 3);
 				std::initializer_list<uint32_t> c = {2, 2, N/4};
 				std::shared_ptr<uint32_t[]> shp = a.view();
@@ -142,9 +185,12 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				std::unique_ptr<float[]> data = std::make_unique<float[]>(N);
 				for(size_t i=0; i < N; i++) { data[i]=i; }
 				Tensor<float> a(data, N, {2, 2, N/4});
+				CHECK(a.is_initialized);
 				CHECK(a.device == CPU);
 				CHECK(a.size == N);
 				CHECK(a.data());
+				CHECK(a.strides());
+				CHECK(a.view());
 				CHECK(a.ndim() == 3);
 				std::initializer_list<uint32_t> c = {2, 2, N/4};
 				std::shared_ptr<uint32_t[]> shp = a.view();
@@ -167,9 +213,12 @@ TEST_CASE("Tensor Constructor", "[core]") {
 	SECTION("Test initializer_list constructor") {
 		SECTION("Correct") {
 			Tensor<float> a({0, 1, 2, 3, 4, 5}, 6, {2, 3});
+			CHECK(a.is_initialized);
 			CHECK(a.device == CPU);
 			CHECK(a.size == 6);
 			CHECK(a.data());
+			CHECK(a.strides());
+			CHECK(a.view());
 			CHECK(a.ndim() == 2);
 			std::initializer_list<uint32_t> c = {2, 3};
 			std::shared_ptr<uint32_t[]> shp = a.view();
@@ -220,8 +269,8 @@ TEST_CASE("API", "[core]") {
 
 	SECTION("Construction Helpers") {
 		SECTION("fill") {
-			//Tensor<float> a = Tensor<float>({N, N});
-			//CHECK_NOTHROW(a.fill(1.25));
+			Tensor<float> a = Tensor<float>({N, N});
+			CHECK_NOTHROW(a.fill(1.25));
 		}
 
 		SECTION("arange") {}
