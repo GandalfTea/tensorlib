@@ -210,10 +210,12 @@ class Tensor {
 			strg[0]=v;
 			this->storage = std::move(strg);
 			std::shared_ptr<uint32_t[]> strd = std::make_unique<uint32_t[]>(this->shape->ndim());
-			for(size_t i=0; i < this->shape->ndim(); i++) {
+			for(size_t i=0; i < this->shape->ndim()-1; i++) {
 				strd[i] = 0;	
 			}
 			this->shape->strides = strd;
+			this->size = this->shape->telem();
+			this->is_initialized = true;
 		}
 
 		void eye() {}
@@ -239,15 +241,18 @@ class Tensor {
 			if(seed!=0) std::srand(seed);
 			for(size_t i=0; i < this->shape->telem(); i++) { data[i] = rand() % range - down;	}
 			this->storge = std::move(data);
+			this->is_initialized = true;
 		}
 
-		// Tensor<float> a = Tensor.arange(50).reshape({25, 2});
-		static Tensor<T> arange(T stop, T start=0, size_t step=1, Device device=CPU) {
+		// TODO: Allow going backwards
+		static Tensor<T> arange(T stop, T start=0, T step=1, Device device=CPU) {
 			if(stop < start || step <= 0 || step >= stop) throw std::runtime_error("Invalid Arguments.");
-			int32_t i=0;
-			std::unique_ptr<T[]> data = std::make_unique<T[]>(stop/step);
-			for(size_t f=start; f<stop/step; f+step) { data[i] = f; i++; }
-			return Tensor<T>(data, i, {i}, device);
+			int32_t size = (std::abs(stop)+std::abs(start))/step;
+			std::unique_ptr<T[]> data = std::make_unique<T[]>(size);
+			for(size_t i=0; i < size; i++) {
+				data[i] = start + i*step;
+			}
+			return Tensor<T>(data, size, {size}, device);
 		}
 
 		// Move semantics
