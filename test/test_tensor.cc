@@ -332,7 +332,42 @@ TEST_CASE("Tensor Constructor", "[core]") {
 
 		SECTION("randn") {
 			SECTION("static") {
-
+				Tensor<float> a = Tensor<float>::randn({N, N});	
+				CHECK(a.is_initialized);
+				CHECK(a.device == CPU);
+				CHECK(a.size == N*N);
+				CHECK(a.data());
+				CHECK(a.strides());
+				CHECK(a.view());
+				CHECK(a.ndim() == 2);
+				std::initializer_list<uint32_t> c = {N,N};
+				std::shared_ptr<uint32_t[]> shp = a.view();
+				uint32_t j=0;
+				for(const auto &x : c) {
+					CHECK(shp[j] == x);
+					j++;
+				}
+				auto data = a.data();
+				for(size_t i=0; i < a.size; i++) {
+					CHECK(data[i] <= 1.f);
+					CHECK(data[i] >= 0.f);
+				}
+			}
+			SECTION("static : 1.f - 2.f") {
+				Tensor<float> a = Tensor<float>::randn({N, N}, 2.f, 1.f);	
+				auto data = a.data();
+				for(size_t i=0; i < a.size; i++) {
+					CHECK(data[i] <= 2.f);
+					CHECK(data[i] >= 1.f);
+				}
+			}
+			SECTION("static : -3.14 - 3.14") {
+				Tensor<float> a = Tensor<float>::randn({N, N}, 3.14, -3.14);	
+				auto data = a.data();
+				for(size_t i=0; i < a.size; i++) {
+					CHECK(data[i] <= 3.14);
+					CHECK(data[i] >= -3.14);
+				}
 			}
 		}
 		SECTION("eye") {}
