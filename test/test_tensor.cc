@@ -16,7 +16,6 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				Tensor<uint8_t> a(data, N, {2, 2, N/4});
 				CHECK(a.device == CPU);
 				CHECK(a.size == N);
-				CHECK(a.bgrad == false);
 				CHECK(a.data());
 				CHECK(a.ndim() == 3);
 				std::initializer_list<uint32_t> c = {2, 2, N/4};
@@ -33,7 +32,6 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				Tensor<uint16_t> a(data, N, {2, 2, N/4});
 				CHECK(a.device == CPU);
 				CHECK(a.size == N);
-				CHECK(a.bgrad == false);
 				CHECK(a.data());
 				CHECK(a.ndim() == 3);
 				std::initializer_list<uint32_t> c = {2, 2, N/4};
@@ -50,7 +48,6 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				Tensor<uint32_t> a(data, N, {2, 2, N/4});
 				CHECK(a.device == CPU);
 				CHECK(a.size == N);
-				CHECK(a.bgrad == false);
 				CHECK(a.data());
 				CHECK(a.ndim() == 3);
 				std::initializer_list<uint32_t> c = {2, 2, N/4};
@@ -67,7 +64,6 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				Tensor<uint64_t> a(data, N, {2, 2, N/4});
 				CHECK(a.device == CPU);
 				CHECK(a.size == N);
-				CHECK(a.bgrad == false);
 				CHECK(a.data());
 				CHECK(a.ndim() == 3);
 				std::initializer_list<uint32_t> c = {2, 2, N/4};
@@ -84,7 +80,6 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				Tensor<int8_t> a(data, N, {2, 2, N/4});
 				CHECK(a.device == CPU);
 				CHECK(a.size == N);
-				CHECK(a.bgrad == false);
 				CHECK(a.data());
 				CHECK(a.ndim() == 3);
 				std::initializer_list<uint32_t> c = {2, 2, N/4};
@@ -101,7 +96,6 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				Tensor<int16_t> a(data, N, {2, 2, N/4});
 				CHECK(a.device == CPU);
 				CHECK(a.size == N);
-				CHECK(a.bgrad == false);
 				CHECK(a.data());
 				CHECK(a.ndim() == 3);
 				std::initializer_list<uint32_t> c = {2, 2, N/4};
@@ -118,7 +112,6 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				Tensor<int32_t> a(data, N, {2, 2, N/4});
 				CHECK(a.device == CPU);
 				CHECK(a.size == N);
-				CHECK(a.bgrad == false);
 				CHECK(a.data());
 				CHECK(a.ndim() == 3);
 				std::initializer_list<uint32_t> c = {2, 2, N/4};
@@ -135,7 +128,6 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				Tensor<int64_t> a(data, N, {2, 2, N/4});
 				CHECK(a.device == CPU);
 				CHECK(a.size == N);
-				CHECK(a.bgrad == false);
 				CHECK(a.data());
 				CHECK(a.ndim() == 3);
 				std::initializer_list<uint32_t> c = {2, 2, N/4};
@@ -152,7 +144,6 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				Tensor<float> a(data, N, {2, 2, N/4});
 				CHECK(a.device == CPU);
 				CHECK(a.size == N);
-				CHECK(a.bgrad == false);
 				CHECK(a.data());
 				CHECK(a.ndim() == 3);
 				std::initializer_list<uint32_t> c = {2, 2, N/4};
@@ -178,7 +169,6 @@ TEST_CASE("Tensor Constructor", "[core]") {
 			Tensor<float> a({0, 1, 2, 3, 4, 5}, 6, {2, 3});
 			CHECK(a.device == CPU);
 			CHECK(a.size == 6);
-			CHECK(a.bgrad == false);
 			CHECK(a.data());
 			CHECK(a.ndim() == 2);
 			std::initializer_list<uint32_t> c = {2, 3};
@@ -226,6 +216,17 @@ TEST_CASE("API", "[core]") {
 				// No clue how yet	
 			}
 		}
+	}
+
+	SECTION("Construction Helpers") {
+		SECTION("fill") {
+			//Tensor<float> a = Tensor<float>({N, N});
+			//CHECK_NOTHROW(a.fill(1.25));
+		}
+
+		SECTION("arange") {}
+		SECTION("randn") {}
+		SECTION("eye") {}
 	}
 }
 
