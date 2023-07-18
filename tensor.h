@@ -166,7 +166,7 @@ class Tensor {
 	public:
 		// Virtual Tensor, contains no data
 		Tensor(std::initializer_list<uint32_t> shp, Device device=CPU)
-			: shape(std::make_unique<View>(View(shape))), device(device) {}
+			: shape(std::make_unique<View>(View(shp))), device(device) {}
 
 		Tensor(std::unique_ptr<T[]> &arr, uint32_t size, std::initializer_list<uint32_t> shape, Device device=CPU) 
 			: size(size), storage(std::move(arr)), shape(std::make_unique<View>(View(shape))),
