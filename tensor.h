@@ -2,19 +2,12 @@
 #ifndef TENSOR
 #define TENSOR
 
-#include <array>
 #include <limits.h>
-#include <memory>
-#include <numeric>
-#include <cassert>
 #include <initializer_list>
 
 #define TENSOR_MAX_DIM (2 << 15)
 #define TENSOR_MAX_STORAGE_SIZE UINT_MAX 
 #define DEBUG 0
-
-// debug
-#include <iostream>
 
 using std::size_t;
 
@@ -47,7 +40,7 @@ struct View {
 	std::shared_ptr<uint32_t[]> strides = nullptr;
 
 	View(std::initializer_list<uint32_t> argview) {
-		assert(argview.size() <= TENSOR_MAX_DIM);
+		if(argview.size() > TENSOR_MAX_DIM) throw std::runtime_error("GLOBAL_LIMIT_EXCEDED");
 		this->numdim = argview.size();
 
 		uint8_t i = 0;
@@ -228,8 +221,8 @@ class Tensor {
 		// Movement OPs
 		template<typename... Args>
 		Tensor<T> operator()(Args... args) {
-			assert(this->shape->ndim());
-			assert(sizeof...(args) <= this->shape->ndim() && sizeof...(args) > 0);
+			if(!this->shape->ndim()) throw std::runtime_error("Tensor has not been initialised");
+			if(sizeof...(args) > this->shape->ndim() || sizeof...(args) < 0) throw std::runtime_error("Invalid arguments.");
 			const std::initializer_list<uint32_t> tmp {args...}; 
 
 			const uint64_t startidx = this->accumulate(tmp);
@@ -273,13 +266,13 @@ class Tensor {
 		// Maybe make shape a unique_ptr or smth
 
 		std::shared_ptr<uint32_t[]> view() { 
-			assert(!!this->shape->view);
+			if(!this->shape->view) throw std::runtime_error("Tensor has not been initialized.");
 			std::shared_ptr<uint32_t[]> ret = this->shape->view;
 			return ret; 
 		}
 
 		std::shared_ptr<uint32_t[]> strides() {
-			assert(!!this->shape->strides);
+			if(!this->shape->view) throw std::runtime_error("Tensor has not been initialized.");
 			std::shared_ptr<uint32_t[]> ret = this->shape->strides;
 			return ret;
 		}
