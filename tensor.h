@@ -4,6 +4,8 @@
 
 #include <string>
 #include <memory>
+#include <cmath>
+#include <stdlib.h>
 #include <limits.h>
 #include <stdexcept>
 #include <initializer_list>
@@ -155,25 +157,28 @@ class Tensor {
 
 	std::shared_ptr<T[]> storage = nullptr;
 	std::shared_ptr<View> shape = nullptr;
-	//std::unique_ptr<Tensor<T>> grad = nullptr;
 
 	public : 
+		bool is_initialized=false;
   	Device device;
 		uint64_t size = 0;
-		bool bgrad;
 
 	public:
-		Tensor(std::unique_ptr<T[]> &arr, uint32_t size, std::initializer_list<uint32_t> shape, bool grad=false, Device device=CPU) 
+		// Virtual Tensor, contains no data
+		Tensor(std::initializer_list<uint32_t> shp, Device device=CPU)
+			: shape(std::make_unique<View>(View(shape))), device(device) {}
+
+		Tensor(std::unique_ptr<T[]> &arr, uint32_t size, std::initializer_list<uint32_t> shape, Device device=CPU) 
 			: size(size), storage(std::move(arr)), shape(std::make_unique<View>(View(shape))),
-				bgrad(grad), device(device)
+				device(device), is_initialized(true)
 		{
 			if(this->shape->telem() != size) {
 				throw std::runtime_error("Invalid Tensor Shape.");
 			}
 		};
 
-		Tensor(std::initializer_list<T> arr, uint32_t size, std::initializer_list<uint32_t> shape, bool grad=false, Device device=CPU)
-			: size(size), shape(std::make_unique<View>(View(shape))), bgrad(grad), device(device)
+		Tensor(std::initializer_list<T> arr, uint32_t size, std::initializer_list<uint32_t> shape, Device device=CPU)
+			: size(size), shape(std::make_unique<View>(View(shape))), device(device), is_initialized(true)
 		{
 			std::unique_ptr<T[]> narr = std::make_unique<T[]>(arr.size());
 			uint32_t i = 0;
@@ -185,8 +190,8 @@ class Tensor {
 		};
 
 		// Mostly for internal use
-		Tensor(std::unique_ptr<T[]> &arr, uint32_t size, sized_array<uint32_t> shape, bool grad=false, Device device=CPU)
-			: size(size), storage(std::move(arr)), bgrad(grad), device(device)
+		Tensor(std::unique_ptr<T[]> &arr, uint32_t size, sized_array<uint32_t> shape, Device device=CPU)
+			: size(size), storage(std::move(arr)), device(device), is_initialized(true)
 		{
 			this->shape = std::make_unique<View>(View({size}));
 			this->shape->reshape(shape.ptr, shape.size);
@@ -197,21 +202,53 @@ class Tensor {
 
 		// Constructor helpers
 
+		// Tensor<float> a({40, 40});
+		// a.fill(0.f);
 		void fill(T v) {
 			if(this->storage) { throw std::runtime_error("Cannot fill initialized Tensor."); }
 			std::unique_ptr<T[]> strg = std::make_unique<T[]>(1);
 			strg[0]=v;
 			this->storage = std::move(strg);
-			std::shared_ptr<uint32_t[]> str = std::make_unique<uint32_t[]>(this->shape->ndim());
+			std::shared_ptr<uint32_t[]> strd = std::make_unique<uint32_t[]>(this->shape->ndim());
 			for(size_t i=0; i < this->shape->ndim(); i++) {
-				str[i] = 0;	
+				strd[i] = 0;	
 			}
-			this->strides = strides;
+			this->shape->strides = strd;
 		}
 
 		void eye() {}
-		void arange() {}
-		void randn() {}
+
+		// Tensor<float> a = Tensor.randn({40, 40});
+		static Tensor<T> randn(std::initializer_list<uint32_t> shp, T up=1.f, T down=0.f, 
+										       uint32_t seed=0, Device device=CPU) 
+		{
+			uint64_t numel = 1;
+			for(const auto& x : shp) numel *= x;
+			std::unique_ptr<T[]> data = std::make_unique<T[]>(numel);
+			uint32_t range = std::abs(up)+std::abs(down);
+			if(seed!=0) std::srand(seed);
+			for(size_t i=0; i < numel; i++) { data[i] = rand() % range - down;	}
+			return Tensor<T>(data, numel, shp, device);
+		}
+
+		// Tensor<float> a = Tensor({40, 40});
+		// a.randn();
+		void randn(T up=1.f, T down=0.f, uint32_t seed=0) {
+			std::unique_ptr<T[]> data = std::make_unique<T[]>(this->shape->telem());
+			uint32_t range = std::abs(up)+std::abs(down);
+			if(seed!=0) std::srand(seed);
+			for(size_t i=0; i < this->shape->telem(); i++) { data[i] = rand() % range - down;	}
+			this->storge = std::move(data);
+		}
+
+		// Tensor<float> a = Tensor.arange(50).reshape({25, 2});
+		static Tensor<T> arange(T stop, T start=0, size_t step=1, Device device=CPU) {
+			if(stop < start || step <= 0 || step >= stop) throw std::runtime_error("Invalid Arguments.");
+			int32_t i=0;
+			std::unique_ptr<T[]> data = std::make_unique<T[]>(stop/step);
+			for(size_t f=start; f<stop/step; f+step) { data[i] = f; i++; }
+			return Tensor<T>(data, i, {i}, device);
+		}
 
 		// Move semantics
 		
@@ -363,7 +400,7 @@ inline std::ostream& operator<<(std::ostream& outs, Tensor<T>& tensor) {
 	}
 	repr += ") on ";
 	repr += (tensor.get_device() == 1) ? "CPU" : "GPU"; 
-	repr += " with grad (0)>";
+	repr += ">";
 	return outs << repr;
 }
 
