@@ -2,8 +2,10 @@
 #ifndef TENSOR
 #define TENSOR
 
+#include <string>
 #include <memory>
 #include <limits.h>
+#include <stdexcept>
 #include <initializer_list>
 
 #define TENSOR_MAX_DIM (2 << 15)
@@ -59,8 +61,6 @@ struct View {
 		this->restride();
 	}
 
-	// Most of the Movement OPs take in C arrays because they are also used internally.
-
 	OPRet reshape(std::shared_ptr<uint32_t[]> &argview, size_t &newdim) {
 		if(newdim >= TENSOR_MAX_DIM) return GLOBAL_LIMIT_EXCEDED;
 		uint64_t product = 1;
@@ -113,13 +113,9 @@ struct View {
 	// TODO:  Implement SHRINK, FLIP and PAD
 
 
-	uint32_t ndim() {
-		return this->numdim;
-	}
+	uint32_t ndim() { return this->numdim; }
 
-	uint64_t telem() {
-		return this->total;
-	}
+	uint64_t telem() { return this->total; }
 
 	private:
 		uint32_t numdim = 0;
@@ -135,26 +131,6 @@ struct View {
 			return SUCCESSFUL;
 		}
 };
-
-inline std::ostream& operator<<(std::ostream& outs, View& view) {
-	std::string repr = "View[(";
-	for(size_t i=0; i <= view.ndim()-1; i++) {
-		repr += std::to_string(view.view[i]);
-		repr += ", ";
-	}
-	repr += "), (";
-	for(size_t i=0; i < view.ndim()-1; i++) {
-		repr += std::to_string(view.strides[i]);
-		repr += ", ";
-	}
-	uint64_t size = view.strides[0] * view.view[0] * 32;
-	repr += "), disk: ";
-	repr += std::to_string( size*1.25e-7);
-	repr += " MB ]";
-
-	return outs << repr;
-}
-
 
 
 typedef enum {
@@ -357,6 +333,25 @@ class Tensor {
 
 
 // OUTPUT REPR 
+
+inline std::ostream& operator<<(std::ostream& outs, View& view) {
+	std::string repr = "View[(";
+	for(size_t i=0; i <= view.ndim()-1; i++) {
+		repr += std::to_string(view.view[i]);
+		repr += ", ";
+	}
+	repr += "), (";
+	for(size_t i=0; i < view.ndim()-1; i++) {
+		repr += std::to_string(view.strides[i]);
+		repr += ", ";
+	}
+	uint64_t size = view.strides[0] * view.view[0] * 32;
+	repr += "), disk: ";
+	repr += std::to_string( size*1.25e-7);
+	repr += " MB ]";
+
+	return outs << repr;
+}
 
 template<typename T>
 inline std::ostream& operator<<(std::ostream& outs, Tensor<T>& tensor) {
