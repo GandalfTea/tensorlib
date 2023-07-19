@@ -202,10 +202,8 @@ class Tensor {
 
 		// Constructor helpers
 
-		// Tensor<float> a({40, 40});
-		// a.fill(0.f);
 		void fill(T v) {
-			if(this->storage) { throw std::runtime_error("Cannot fill initialized Tensor."); }
+			if(this->storage) throw std::runtime_error("Cannot fill initialized Tensor.");
 			std::unique_ptr<T[]> strg = std::make_unique<T[]>(1);
 			strg[0]=v;
 			this->storage = std::move(strg);
@@ -218,9 +216,21 @@ class Tensor {
 			this->is_initialized = true;
 		}
 
-		void eye() {}
+		// auto a = Tensor<float>::eye(4096, 2);
+		static Tensor<T> eye(uint32_t size, uint32_t dims=2, Device device=CPU) {
+			if(dims < 2 || size < 2) throw std::runtime_error("Cannot create a 1 dim identity tensor.");
+			std::unique_ptr<T[]> data = std::make_unique<T[]>( new T[pow(size, dims)]() );
+			sized_array<uint32_t> shp;
+			shp.size = dims;
+			shp.ptr = std::make_unique<uint32_t[]>(dims);
+			for(size_t i=0; i<dims; i++) shp[i] = size; 
+			auto ret = Tensor<T>(data, pow(size, dims), shp, device);
+			uint32_t i = 0;
+			for(size_t k=0; k<size; k++) {
+				ret(i, i, )	
+			}
+		}
 
-		// Tensor<float> a = Tensor<float>::randn({40, 40});
 		static Tensor<T> randn(std::initializer_list<uint32_t> shp, T up=1.f, T down=0.f, 
 										       uint32_t seed=0, Device device=CPU) 
 		{
@@ -233,13 +243,11 @@ class Tensor {
 			return Tensor<T>(data, numel, shp, device);
 		}
 
-		// Tensor<float> a = Tensor({40, 40});
-		// a.randn();
 		void randn(T up=1.f, T down=0.f, uint32_t seed=0) {
 			std::unique_ptr<T[]> data = std::make_unique<T[]>(this->shape->telem());
-			uint32_t range = std::abs(up)+std::abs(down);
+			T range = std::abs(up)+std::abs(down);
 			if(seed!=0) std::srand(seed);
-			for(size_t i=0; i < this->shape->telem(); i++) { data[i] = rand() % range - down;	}
+			for(size_t i=0; i < this->shape->telem(); i++) { data[i] = down + (std::rand()/(RAND_MAX/(up-down)));	}
 			this->storge = std::move(data);
 			this->is_initialized = true;
 		}
@@ -260,16 +268,31 @@ class Tensor {
 		static void like() {}
 		void operator=(Tensor<T>& rhs) {}
 
-		// Movement OPs
+
+		// Lambda OPs
+		void exec(lambda)
+
+
 		template<typename... Args>
 		Tensor<T> operator()(Args... args) {
 			if(!this->shape->ndim()) throw std::runtime_error("Tensor has not been initialised");
 			if(sizeof...(args) > this->shape->ndim() || sizeof...(args) < 0) throw std::runtime_error("Invalid arguments.");
 			const std::initializer_list<uint32_t> tmp {args...}; 
+			std::unique_ptr<uint32_t[]> idxs = std::make_unique<uint32_t[]>(tmp.size());
+			uint32_t i=0;
+			for(const auto& x : tmp) { idxs[i] = x; i++; }
+			return this->stride(idxs, tmp.size());
+		}
 
-			const uint64_t startidx = this->accumulate(tmp);
+		// Movement OPs
+		
+		bool reshape(std::initializer_list<uint32_t> nview) { return this->execute_movement_op(nview, RESHAPE); }
+		bool permute(std::initializer_list<uint32_t> nview) { return this->execute_movement_op(nview, PERMUTE); }
+		bool expand(std::initializer_list<uint32_t> nview) { return this->execute_movement_op(nview, EXPAND); }
 
-			if(tmp.size() < this->shape->ndim()) {
+		Tensor<t> stride(std::unique_ptr<uint32_t[]>& idxs, uint32_t len) {
+			const uint64_t startidx = this->accumulate(idxs, len);
+			if(len < this->shape->ndim()) {
 				const uint64_t endidx = startidx + this->shape->strides[tmp.size()-1]; 
 				std::unique_ptr<T[]> data = std::make_unique<T[]>(endidx-startidx);
 				for(size_t i=startidx; i<=endidx; i++) {
@@ -292,11 +315,8 @@ class Tensor {
 				Tensor<T> ret(data, 1, {1});
 				return ret;
 			}
-		}
 
-		bool reshape(std::initializer_list<uint32_t> nview) { return this->execute_movement_op(nview, RESHAPE); }
-		bool permute(std::initializer_list<uint32_t> nview) { return this->execute_movement_op(nview, PERMUTE); }
-		bool expand(std::initializer_list<uint32_t> nview) { return this->execute_movement_op(nview, EXPAND); }
+		}
 
 
 		// TODO: These might allow for unwanted changes to the data. Maybe clone?
