@@ -223,12 +223,10 @@ class Tensor {
 			sized_array<uint32_t> shp;
 			shp.size = dims;
 			shp.ptr = std::make_unique<uint32_t[]>(dims);
-			for(size_t i=0; i<dims; i++) shp[i] = size; 
+			for(size_t i=0; i<dims; i++) shp.ptr[i] = size; 
 			auto ret = Tensor<T>(data, pow(size, dims), shp, device);
 			uint32_t i = 0;
-			for(size_t k=0; k<size; k++) {
-				ret(i, i, )	
-			}
+			for(size_t k=0; k<size; k++) { }
 		}
 
 		static Tensor<T> randn(std::initializer_list<uint32_t> shp, T up=1.f, T down=0.f, 
@@ -248,7 +246,7 @@ class Tensor {
 			T range = std::abs(up)+std::abs(down);
 			if(seed!=0) std::srand(seed);
 			for(size_t i=0; i < this->shape->telem(); i++) { data[i] = down + (std::rand()/(RAND_MAX/(up-down)));	}
-			this->storge = std::move(data);
+			this->storage = std::move(data);
 			this->is_initialized = true;
 		}
 
@@ -270,7 +268,7 @@ class Tensor {
 
 
 		// Lambda OPs
-		void exec(lambda)
+		void exec() {}
 
 
 		template<typename... Args>
@@ -290,21 +288,21 @@ class Tensor {
 		bool permute(std::initializer_list<uint32_t> nview) { return this->execute_movement_op(nview, PERMUTE); }
 		bool expand(std::initializer_list<uint32_t> nview) { return this->execute_movement_op(nview, EXPAND); }
 
-		Tensor<t> stride(std::unique_ptr<uint32_t[]>& idxs, uint32_t len) {
+		Tensor<T> stride(std::unique_ptr<uint32_t[]>& idxs, uint32_t len) {
 			const uint64_t startidx = this->accumulate(idxs, len);
 			if(len < this->shape->ndim()) {
-				const uint64_t endidx = startidx + this->shape->strides[tmp.size()-1]; 
+				const uint64_t endidx = startidx + this->shape->strides[len-1]; 
 				std::unique_ptr<T[]> data = std::make_unique<T[]>(endidx-startidx);
 				for(size_t i=startidx; i<=endidx; i++) {
 					data[i-startidx] = this->storage[i];
 				}
 
 				sized_array<uint32_t> shape;
-				shape.ptr = std::make_unique<uint32_t[]>(this->shape->ndim()-tmp.size());
-				shape.size = this->shape->ndim()-tmp.size();
+				shape.ptr = std::make_unique<uint32_t[]>(this->shape->ndim()-len);
+				shape.size = this->shape->ndim()-len;
 
-				for(size_t i=tmp.size(); i < this->shape->ndim(); i++) {
-					shape.ptr[i-tmp.size()] = this->shape->view[i];	
+				for(size_t i=len; i < this->shape->ndim(); i++) {
+					shape.ptr[i-len] = this->shape->view[i];	
 				}
 				Tensor<T> ret(data, endidx-startidx, shape);
 				return ret;
@@ -379,14 +377,11 @@ class Tensor {
 			}
 		}
 
-		uint64_t accumulate(const std::initializer_list<uint32_t> arr) {
-			uint32_t i = 0;
+		uint64_t accumulate(std::unique_ptr<uint32_t[]>& arr, size_t len) {
 			uint64_t acc = 0; 
-
-			for(const auto x : arr) {
-				if(x >= this->shape->view[i]) throw TensorException(INVALID_SHAPE_OPERATION, "Index out of bounds.");
-				acc += this->shape->strides[i]*x;
-				i++;
+			for(size_t i=0; i < len; i++) {
+				if(arr[i] >= this->shape->view[i]) throw TensorException(INVALID_SHAPE_OPERATION, "Index out of bounds.");
+				acc += this->shape->strides[i]*arr[i];
 			}
 			return acc;
 		}
