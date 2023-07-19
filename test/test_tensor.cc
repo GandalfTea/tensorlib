@@ -369,6 +369,15 @@ TEST_CASE("Tensor Constructor", "[core]") {
 					CHECK(data[i] >= -3.14);
 				}
 			}
+			SECTION("non-static") {
+				Tensor<float> a = Tensor<float>({N, N});
+				CHECK_NOTHROW(a.randn(3.14, -3.14));
+				auto data = a.data();
+				for(size_t i=0; i < a.size; i++) {
+					CHECK(data[i] <= 3.14);
+					CHECK(data[i] >= -3.14);
+				}
+			}
 		}
 		SECTION("eye") {}
 	}
