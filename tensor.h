@@ -152,7 +152,7 @@ class TensorException : public std::exception {
 		TensorException(TensorError err, const char* msg) : err(err), msg(msg) {}
 };
 
-template<typename T>
+template<typename T = float>
 class Tensor {
 
 	std::shared_ptr<T[]> storage = nullptr;
@@ -201,11 +201,23 @@ class Tensor {
 		}
 
 		// Constructor helpers
+		
+		// auto a = Tensor<>({2048, 2048}).fill(1)
+		// auto a = Tensor<>::fill(1, {2048, 2048});
+		static Tensor<T> fill(T v, std::initializer_list<uint32_t> shp, Device device=CPU) {
+			std::unique_ptr<T[]> strg = std::unique_ptr<T[]>( new T[1]() );
+			if(v!=0) strg[0]=v;
+			uint64_t numel = 1;
+			for(const auto& x : shp) numel *= x;
+			auto ret = Tensor<T>(strg, numel, shp, device);
+			for(size_t i=0; i < ret->shape->ndim()-1; i++) { ret->view->strides[i] = 0;	}
+			return ret;
+		}
 
 		void fill(T v) {
 			if(this->storage) throw std::runtime_error("Cannot fill initialized Tensor.");
-			std::unique_ptr<T[]> strg = std::make_unique<T[]>(1);
-			strg[0]=v;
+			std::unique_ptr<T[]> strg = std::unique_ptr<T[]>( new T[1]() );
+			if(v!=0) strg[0]=v;
 			this->storage = std::move(strg);
 			std::shared_ptr<uint32_t[]> strd = std::make_unique<uint32_t[]>(this->shape->ndim());
 			for(size_t i=0; i < this->shape->ndim()-1; i++) {
@@ -216,7 +228,6 @@ class Tensor {
 			this->is_initialized = true;
 		}
 
-		// auto a = Tensor<float>::eye(4096, 2);
 		static Tensor<T> eye(uint32_t size, uint32_t dims=2, Device device=CPU) {
 			if(dims < 2 || size < 2) throw std::runtime_error("Cannot create a 1 dim identity tensor.");
 			std::unique_ptr<T[]> data = std::make_unique<T[]>( new T[pow(size, dims)]() );
@@ -225,8 +236,11 @@ class Tensor {
 			shp.ptr = std::make_unique<uint32_t[]>(dims);
 			for(size_t i=0; i<dims; i++) shp.ptr[i] = size; 
 			auto ret = Tensor<T>(data, pow(size, dims), shp, device);
-			uint32_t i = 0;
-			for(size_t k=0; k<size; k++) { }
+
+			std::unique_ptr<uint32_t[]> idxs = std::unique_ptr<uint32_t[]>( new uint32_t[dims]() );
+			for(size_t k=0; k<size; k++) { 
+				//ret.storage[]
+			}
 		}
 
 		static Tensor<T> randn(std::initializer_list<uint32_t> shp, T up=1.f, T down=0.f, 
@@ -250,6 +264,8 @@ class Tensor {
 			this->is_initialized = true;
 		}
 
+		// auto a = Tensor<float>::arange(50);
+
 		// TODO: Allow going backwards
 		static Tensor<T> arange(T stop, T start=0, T step=1, Device device=CPU) {
 			if(stop < start || step <= 0 || step >= stop) throw std::runtime_error("Invalid Arguments.");
@@ -271,6 +287,7 @@ class Tensor {
 		void exec() {}
 
 
+		// TODO: Move no data 
 		template<typename... Args>
 		Tensor<T> operator()(Args... args) {
 			if(!this->shape->ndim()) throw std::runtime_error("Tensor has not been initialised");
