@@ -31,6 +31,12 @@ TEST_CASE("Tensor Constructor", "[core]") {
 
 	SECTION("Test unique_ptr constructor") { 
 		SECTION("Correct") {
+			SECTION("No template argument") {
+				std::unique_ptr<float[]> data = std::unique_ptr<float[]>( new float[N]());
+				CHECK_NOTHROW(Tensor(data, N, {2, 2, N/4}));
+				CHECK_NOTHROW(Tensor<>::arange(50));
+				CHECK_NOTHROW(Tensor<>::randn({50, 50}));
+			}
 			SECTION("uint8_t") {
 				std::unique_ptr<uint8_t[]> data = std::make_unique<uint8_t[]>(N);
 				for(size_t i=0; i < N; i++) { data[i]=i; }
