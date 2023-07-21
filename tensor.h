@@ -117,7 +117,7 @@ struct View {
 
 	uint32_t ndim() { return this->numdim; }
 
-	uint64_t telem() { return this->total; }
+	uint64_t numel() { return this->total; }
 
 	private:
 		uint32_t numdim = 0;
@@ -166,70 +166,42 @@ class Tensor {
 	public:
 		// Virtual Tensor, contains no data
 		Tensor(std::initializer_list<uint32_t> shp, Device device=CPU)
-			: shape(std::make_unique<View>(View(shp))), device(device) {}
+			: shape(std::make_unique<View>(View(shp))), device(device) 
+		{
+			this->size = this->shape->numel();
+		}
 
-		Tensor(std::unique_ptr<T[]> &arr, uint32_t size, std::initializer_list<uint32_t> shape, Device device=CPU) 
+		Tensor(std::unique_ptr<T[]> &arr, size_t size, std::initializer_list<uint32_t> shape, Device device=CPU) 
 			: size(size), storage(std::move(arr)), shape(std::make_unique<View>(View(shape))),
 				device(device), is_initialized(true)
 		{
-			if(this->shape->telem() != size) {
-				throw std::runtime_error("Invalid Tensor Shape.");
-			}
+			if(size != this->shape->numel()) throw std::runtime_error("Shape does not match data.");
 		};
 
-		Tensor(std::initializer_list<T> arr, uint32_t size, std::initializer_list<uint32_t> shape, Device device=CPU)
-			: size(size), shape(std::make_unique<View>(View(shape))), device(device), is_initialized(true)
+		Tensor(std::initializer_list<T> arr, std::initializer_list<uint32_t> shape, Device device=CPU, bool is_fill=false)
+			: shape(std::make_unique<View>(View(shape))), device(device), is_initialized(true)
 		{
-			std::unique_ptr<T[]> narr = std::make_unique<T[]>(arr.size());
+			if(!is_fill) if(arr.size() != this->shape->numel()) throw std::runtime_error("Shape does not match data.");
+			std::unique_ptr<T[]> narr = std::unique_ptr<T[]>(new T[arr.size()]);
 			uint32_t i = 0;
 			for(const auto& x : arr) { narr[i] = x; i++; }
 			this->storage = std::move(narr);
-			if(this->shape->telem() != size) {
-				throw std::runtime_error("Invalid Tensor Shape.");
-			}
+			this->size = arr.size();
 		};
 
 		// Mostly for internal use
-		Tensor(std::unique_ptr<T[]> &arr, uint32_t size, sized_array<uint32_t> shape, Device device=CPU)
+		Tensor(std::unique_ptr<T[]> &arr, uint64_t size, sized_array<uint32_t> shape, Device device=CPU)
 			: size(size), storage(std::move(arr)), device(device), is_initialized(true)
 		{
 			this->shape = std::make_unique<View>(View({size}));
 			this->shape->reshape(shape.ptr, shape.size);
-			if(this->shape->telem() != size) {
-				throw std::runtime_error("Invalid Tensor Shape.");
-			}
 		}
 
 		// Constructor helpers
 		
-		// auto a = Tensor<>({2048, 2048}).fill(1)
-		// auto a = Tensor<>::fill(1, {2048, 2048});
-		static Tensor<T> fill(T v, std::initializer_list<uint32_t> shp, Device device=CPU) {
-			std::unique_ptr<T[]> strg = std::unique_ptr<T[]>( new T[1]() );
-			if(v!=0) strg[0]=v;
-			uint64_t numel = 1;
-			for(const auto& x : shp) numel *= x;
-			auto ret = Tensor<T>(strg, numel, shp, device);
-			for(size_t i=0; i < ret->shape->ndim()-1; i++) { ret->view->strides[i] = 0;	}
-			return ret;
-		}
-
-		void fill(T v) {
-			if(this->storage) throw std::runtime_error("Cannot fill initialized Tensor.");
-			std::unique_ptr<T[]> strg = std::unique_ptr<T[]>( new T[1]() );
-			if(v!=0) strg[0]=v;
-			this->storage = std::move(strg);
-			std::shared_ptr<uint32_t[]> strd = std::make_unique<uint32_t[]>(this->shape->ndim());
-			for(size_t i=0; i < this->shape->ndim()-1; i++) {
-				strd[i] = 0;	
-			}
-			this->shape->strides = strd;
-			this->size = this->shape->telem();
-			this->is_initialized = true;
-		}
-
+		// auto a = Tensor<>::eye(4096, 4);
 		static Tensor<T> eye(uint32_t size, uint32_t dims=2, Device device=CPU) {
-			if(dims < 2 || size < 2) throw std::runtime_error("Cannot create a 1 dim identity tensor.");
+			if(size < 2 || dims < 2) throw std::runtime_error("Cannot create a 1 dim identity tensor.");
 			std::unique_ptr<T[]> data = std::make_unique<T[]>( new T[pow(size, dims)]() );
 			sized_array<uint32_t> shp;
 			shp.size = dims;
@@ -242,30 +214,55 @@ class Tensor {
 				//ret.storage[]
 			}
 		}
-
-		static Tensor<T> randn(std::initializer_list<uint32_t> shp, T up=1.f, T down=0.f, 
-										       uint32_t seed=0, Device device=CPU) 
-		{
-			uint64_t numel = 1;
-			for(const auto& x : shp) numel *= x;
-			std::unique_ptr<T[]> data = std::make_unique<T[]>(numel);
-			T range = std::abs(up)+std::abs(down);
-			if(seed!=0) std::srand(seed);
-			for(size_t i=0; i < numel; i++) { data[i] = down + (std::rand()/(RAND_MAX/(up-down)));	}
-			return Tensor<T>(data, numel, shp, device);
+		
+		// auto a = Tensor<>::fill({2048, 2048}, 69.f);
+		static Tensor<T> fill(std::initializer_list<uint32_t> shp, T v, Device device=CPU) {
+			auto ret = Tensor<T>({v}, shp, device, true);
+			for(size_t i=0; i < ret.shape->ndim(); i++) { ret.shape->strides[i] = 0;	}
+			return ret;
 		}
 
-		void randn(T up=1.f, T down=0.f, uint32_t seed=0) {
-			std::unique_ptr<T[]> data = std::make_unique<T[]>(this->shape->telem());
-			T range = std::abs(up)+std::abs(down);
-			if(seed!=0) std::srand(seed);
-			for(size_t i=0; i < this->shape->telem(); i++) { data[i] = down + (std::rand()/(RAND_MAX/(up-down)));	}
-			this->storage = std::move(data);
+		// internal
+		static Tensor<T> fill(sized_array<uint32_t> shp, T v, Device device=CPU) {
+			auto ret = Tensor<T>({v}, shp, device);
+			for(size_t i=0; i < ret.shape->ndim(); i++) { ret.shape->strides[i] = 0;	}
+			return ret;
+		}
+
+		// auto b = Tensor<>::like(a).fill(69.f);
+		void fill(T v) {
+			if(this->storage) throw std::runtime_error("Cannot fill initialized Tensor.");
+			this->storage = std::unique_ptr<T[]>( new T[1]() );
+			if(v!=0) this->storage[0]=v;
+			std::shared_ptr<uint32_t[]> strd = std::make_unique<uint32_t[]>(this->shape->ndim());
+			for(size_t i=0; i < this->shape->ndim(); i++) { strd[i] = 0;	}
+			this->shape->strides = strd;
 			this->is_initialized = true;
 		}
 
-		// auto a = Tensor<float>::arange(50);
+		// auto a = Tensor<>::randn({4096, 4096}, 3.14, -3.14);
+		static Tensor<T> randn(std::initializer_list<uint32_t> shp, T up=1.f, T down=0.f, 
+										       uint32_t seed=0, Device device=CPU) 
+		{
+			auto ret = Tensor<T>(shp, device);
+			std::unique_ptr<T[]> data = std::unique_ptr<T[]>(new T[ret.size]);
+			T range = std::abs(up)+std::abs(down);
+			if(seed!=0) std::srand(seed);
+			for(size_t i=0; i < ret.size; i++) { data[i] = down + (std::rand()/(RAND_MAX/(up-down)));	}
+			ret.set_data(data, ret.size);
+			return ret;
+		}
 
+		// auto b = Tensor<>::like(a).randn(69.f, -69.f);
+		void randn(T up=1.f, T down=0.f, uint32_t seed=0) {
+			std::unique_ptr<T[]> data = std::unique_ptr<T[]>(new T[this->size]);
+			T range = std::abs(up)+std::abs(down);
+			if(seed!=0) std::srand(seed);
+			for(size_t i=0; i < this->shape->numel(); i++) { data[i] = down + (std::rand()/(RAND_MAX/(up-down)));	}
+			this->set_data(data, this->size);
+		}
+
+		// auto a = Tensor<float>::arange(50);
 		// TODO: Allow going backwards
 		static Tensor<T> arange(T stop, T start=0, T step=1, Device device=CPU) {
 			if(stop < start || step <= 0 || step >= stop) throw std::runtime_error("Invalid Arguments.");
@@ -279,7 +276,7 @@ class Tensor {
 
 		// Move semantics
 		
-		static void like() {}
+		static void like(Tensor rhs) {}
 		void operator=(Tensor<T>& rhs) {}
 
 
@@ -313,24 +310,16 @@ class Tensor {
 				for(size_t i=startidx; i<=endidx; i++) {
 					data[i-startidx] = this->storage[i];
 				}
-
 				sized_array<uint32_t> shape;
 				shape.ptr = std::make_unique<uint32_t[]>(this->shape->ndim()-len);
 				shape.size = this->shape->ndim()-len;
-
 				for(size_t i=len; i < this->shape->ndim(); i++) {
 					shape.ptr[i-len] = this->shape->view[i];	
 				}
-				Tensor<T> ret(data, endidx-startidx, shape);
-				return ret;
-
+				return Tensor<T>(data, endidx-startidx, shape);
 			} else {
-				std::unique_ptr<T[]> data = std::make_unique<T[]>(1);
-				data[0] = this->storage[startidx];
-				Tensor<T> ret(data, 1, {1});
-				return ret;
+				return Tensor<T>({this->storage[startidx]}, {1});
 			}
-
 		}
 
 
@@ -338,6 +327,12 @@ class Tensor {
 
 		std::shared_ptr<T[]> data() { return this->storage; }
 		uint32_t ndim() { return this->shape->ndim(); }
+
+		void set_data(std::unique_ptr<T[]>& d, uint64_t len) {
+			if(this->size != len) throw std::runtime_error("New data does not match existing shape.");
+			this->storage = std::move(d);
+			this->is_initialized = true;
+		}
 
 		// TODO: Somehow protect this from changes
 		// Maybe make shape a unique_ptr or smth
