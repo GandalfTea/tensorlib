@@ -16,7 +16,7 @@ TEST_CASE("Test View Creation", "[core]") {
 		CHECK(a.view);
 		CHECK(a.strides);
 		CHECK(a.ndim() == 1);
-		CHECK(a.telem() == 512);
+		CHECK(a.numel() == 512);
 
 		uint32_t i=0;
 		for(const auto &x: cv) {
@@ -38,7 +38,7 @@ TEST_CASE("Test View Creation", "[core]") {
 		CHECK(a.view);
 		CHECK(a.strides);
 		CHECK(a.ndim() == 3);
-		CHECK(a.telem() == 512*2*2);
+		CHECK(a.numel() == 512*2*2);
 
 		uint32_t i=0;
 		for(const auto &x: cv) {
