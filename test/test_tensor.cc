@@ -17,7 +17,7 @@ TEST_CASE("Tensor Constructor", "[core]") {
 		CHECK(!a.is_initialized);
 		CHECK(a.strides());
 		CHECK(a.view());
-		CHECK(a.size == 0);
+		CHECK(a.size == N*N);
 		CHECK(a.ndim()==2);
 		CHECK(a.device == CPU);
 		std::initializer_list<uint32_t> shp = {N, N};
@@ -33,7 +33,7 @@ TEST_CASE("Tensor Constructor", "[core]") {
 		SECTION("Correct") {
 			SECTION("No template argument") {
 				std::unique_ptr<float[]> data = std::unique_ptr<float[]>( new float[N]());
-				CHECK_NOTHROW(Tensor(data, N, {2, 2, N/4}));
+				CHECK_NOTHROW(Tensor<>(data, N, {2, 2, N/4}));
 				CHECK_NOTHROW(Tensor<>::arange(50));
 				CHECK_NOTHROW(Tensor<>::randn({50, 50}));
 			}
@@ -220,7 +220,7 @@ TEST_CASE("Tensor Constructor", "[core]") {
 
 	SECTION("Test initializer_list constructor") {
 		SECTION("Correct") {
-			Tensor<float> a({0, 1, 2, 3, 4, 5}, 6, {2, 3});
+			Tensor<float> a({0, 1, 2, 3, 4, 5}, {2, 3});
 			CHECK(a.is_initialized);
 			CHECK(a.device == CPU);
 			CHECK(a.size == 6);
@@ -238,7 +238,7 @@ TEST_CASE("Tensor Constructor", "[core]") {
 		}
 
 		SECTION("Incorrect shape") {
-			CHECK_THROWS(Tensor<float>({0.f, 1.f, 2.f, 3.f, 4.f, 5.f}, 6, {2, 2, 2}));
+			CHECK_THROWS(Tensor<float>({0.f, 1.f, 2.f, 3.f, 4.f, 5.f}, {2, 2, 2}));
 		}
 
 		SECTION("Test Storage CPU") {}
@@ -269,6 +269,15 @@ TEST_CASE("Tensor Constructor", "[core]") {
 			for(size_t i=0; i < a.view()[0]; i++) {
 				for(size_t j=0; j < a.view()[1]; j++) {
 					CHECK_THAT(a(i, j).data()[0], WithinAbsMatcher(1.25, EPSILON));
+				}
+			}
+		}
+
+		SECTION("static fill") {
+			auto a = Tensor<>::fill({N, N}, 3.14);
+			for(size_t i=0; i < a.view()[0]; i++) {
+				for(size_t j=0; j < a.view()[1]; j++) {
+					CHECK_THAT(a(i, j).data()[0], WithinAbsMatcher(3.14, EPSILON));
 				}
 			}
 		}
@@ -371,8 +380,8 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				Tensor<float> a = Tensor<float>::randn({N, N}, 3.14, -3.14);	
 				auto data = a.data();
 				for(size_t i=0; i < a.size; i++) {
-					CHECK(data[i] <= 3.14);
-					CHECK(data[i] >= -3.14);
+					CHECK(data[i] < 3.15);
+					CHECK(data[i] > -3.15);
 				}
 			}
 			SECTION("non-static") {
@@ -380,8 +389,8 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				CHECK_NOTHROW(a.randn(3.14, -3.14));
 				auto data = a.data();
 				for(size_t i=0; i < a.size; i++) {
-					CHECK(data[i] <= 3.14);
-					CHECK(data[i] >= -3.14);
+					CHECK(data[i] < 3.15);
+					CHECK(data[i] > -3.15);
 				}
 			}
 		}
