@@ -134,7 +134,6 @@ struct View {
 		}
 };
 
-
 typedef enum {
 	GPU,
 	CPU
@@ -189,7 +188,33 @@ class Tensor {
 			this->size = arr.size();
 		};
 
-		// Mostly for internal use
+		// There are mostly for internal use
+
+		Tensor(std::initializer_list<T> arr, sized_array<uint32_t> shp, Device device=CPU, bool is_fill=false)
+			: device(device), is_initialized(true)
+		{
+			if(is_fill) {
+				uint64_t numel=1;
+				for(size_t i=0; i<shp.size; i++) numel *= shp.ptr[i];
+				this->shape = std::make_unique<View>(View({numel}));
+				switch(this->shape->reshape(shp.ptr, shp.size)) {
+					case SUCCESSFUL: break;
+					default: throw std::runtime_error("Error reshaping tensor.");
+				};
+				for(size_t i=0; i < this->shape->ndim(); i++) this->shape->strides[i] = 0;
+				this->size = numel;
+			} else {
+				if(arr.size() != this->shape->numel()) throw std::runtime_error("Shape does not match data.");
+				this->shape = std::make_unique<View>(View({arr.size()}));
+				this->shape->reshape(shp.ptr, shp.size);
+				this->size = arr.size();
+			}
+			std::unique_ptr<T[]> narr = std::unique_ptr<T[]>(new T[arr.size()]);
+			uint32_t i = 0;
+			for(const auto& x : arr) { narr[i] = x; i++; }
+			this->storage = std::move(narr);
+		};
+
 		Tensor(std::unique_ptr<T[]> &arr, uint64_t size, sized_array<uint32_t> shape, Device device=CPU)
 			: size(size), storage(std::move(arr)), device(device), is_initialized(true)
 		{
@@ -202,17 +227,17 @@ class Tensor {
 		// auto a = Tensor<>::eye(4096, 4);
 		static Tensor<T> eye(uint32_t size, uint32_t dims=2, Device device=CPU) {
 			if(size < 2 || dims < 2) throw std::runtime_error("Cannot create a 1 dim identity tensor.");
-			std::unique_ptr<T[]> data = std::make_unique<T[]>( new T[pow(size, dims)]() );
-			sized_array<uint32_t> shp;
-			shp.size = dims;
-			shp.ptr = std::make_unique<uint32_t[]>(dims);
+			auto ptr = std::make_unique<uint32_t[]>(dims);
+			sized_array<uint32_t> shp { std::move(ptr), dims };
 			for(size_t i=0; i<dims; i++) shp.ptr[i] = size; 
-			auto ret = Tensor<T>(data, pow(size, dims), shp, device);
+			auto ret = Tensor<T>::fill(shp, 0, device); 
 
 			std::unique_ptr<uint32_t[]> idxs = std::unique_ptr<uint32_t[]>( new uint32_t[dims]() );
 			for(size_t k=0; k<size; k++) { 
-				//ret.storage[]
+				auto strd = ret.stride(idxs, dims);
+				ret.storage[strd[0]] = 1;
 			}
+			return Tensor<>({2});
 		}
 		
 		// auto a = Tensor<>::fill({2048, 2048}, 69.f);
@@ -224,7 +249,7 @@ class Tensor {
 
 		// internal
 		static Tensor<T> fill(sized_array<uint32_t> shp, T v, Device device=CPU) {
-			auto ret = Tensor<T>({v}, shp, device);
+			auto ret = Tensor<T>({v}, shp, device, true);
 			for(size_t i=0; i < ret.shape->ndim(); i++) { ret.shape->strides[i] = 0;	}
 			return ret;
 		}
@@ -266,7 +291,7 @@ class Tensor {
 		// TODO: Allow going backwards
 		static Tensor<T> arange(T stop, T start=0, T step=1, Device device=CPU) {
 			if(stop < start || step <= 0 || step >= stop) throw std::runtime_error("Invalid Arguments.");
-			int32_t size = (std::abs(stop)+std::abs(start))/step;
+			uint32_t size = (std::abs(stop)+std::abs(start))/step;
 			std::unique_ptr<T[]> data = std::make_unique<T[]>(size);
 			for(size_t i=0; i < size; i++) {
 				data[i] = start + i*step;
@@ -293,7 +318,7 @@ class Tensor {
 			std::unique_ptr<uint32_t[]> idxs = std::make_unique<uint32_t[]>(tmp.size());
 			uint32_t i=0;
 			for(const auto& x : tmp) { idxs[i] = x; i++; }
-			return this->stride(idxs, tmp.size());
+			return this->stride_create(idxs, tmp.size());
 		}
 
 		// Movement OPs
@@ -302,8 +327,18 @@ class Tensor {
 		bool permute(std::initializer_list<uint32_t> nview) { return this->execute_movement_op(nview, PERMUTE); }
 		bool expand(std::initializer_list<uint32_t> nview) { return this->execute_movement_op(nview, EXPAND); }
 
-		Tensor<T> stride(std::unique_ptr<uint32_t[]>& idxs, uint32_t len) {
-			const uint64_t startidx = this->accumulate(idxs, len);
+		std::unique_ptr<uint32_t[]> stride(std::unique_ptr<uint32_t[]>& idxs, uint32_t len) {
+			const uint64_t startidx = this->accumulate_strides(idxs, len);
+			uint64_t endidx = startidx;
+			if(len < this->shape->ndim()) endidx += this->shape->strides[len-1]; 
+			auto ret = std::make_unique<uint32_t[]>(2);
+			ret[0] = startidx;
+			ret[1] = endidx;
+			return ret;
+		}
+
+		Tensor<T> stride_create(std::unique_ptr<uint32_t[]>& idxs, uint32_t len) {
+			const uint64_t startidx = this->accumulate_strides(idxs, len);
 			if(len < this->shape->ndim()) {
 				const uint64_t endidx = startidx + this->shape->strides[len-1]; 
 				std::unique_ptr<T[]> data = std::make_unique<T[]>(endidx-startidx);
@@ -324,6 +359,8 @@ class Tensor {
 
 
 		// TODO: These might allow for unwanted changes to the data. Maybe clone?
+
+		public: 
 
 		std::shared_ptr<T[]> data() { return this->storage; }
 		uint32_t ndim() { return this->shape->ndim(); }
@@ -389,7 +426,7 @@ class Tensor {
 			}
 		}
 
-		uint64_t accumulate(std::unique_ptr<uint32_t[]>& arr, size_t len) {
+		uint64_t accumulate_strides (std::unique_ptr<uint32_t[]>& arr, size_t len) {
 			uint64_t acc = 0; 
 			for(size_t i=0; i < len; i++) {
 				if(arr[i] >= this->shape->view[i]) throw TensorException(INVALID_SHAPE_OPERATION, "Index out of bounds.");
@@ -402,6 +439,20 @@ class Tensor {
 
 
 // OUTPUT REPR 
+
+template<typename T>
+inline std::ostream& operator<<(std::ostream& outs, Tensor<T>& tensor) {
+	std::string repr = "<Tensor (";
+	auto shape = tensor.view();
+	for(size_t i=0; i < tensor.ndim(); i++) {
+		repr += std::to_string(shape[i]);
+		repr += ", ";
+	}
+	repr += ") on ";
+	repr += (tensor.device == 1) ? "CPU" : "GPU"; 
+	repr += ">";
+	return outs << repr;
+}
 
 inline std::ostream& operator<<(std::ostream& outs, View& view) {
 	std::string repr = "View[(";
@@ -419,20 +470,6 @@ inline std::ostream& operator<<(std::ostream& outs, View& view) {
 	repr += std::to_string( size*1.25e-7);
 	repr += " MB ]";
 
-	return outs << repr;
-}
-
-template<typename T>
-inline std::ostream& operator<<(std::ostream& outs, Tensor<T>& tensor) {
-	std::string repr = "<Tensor (";
-	auto shape = tensor.get_shape();
-	for(size_t i=0; i < tensor.ndim(); i++) {
-		repr += std::to_string(shape[i]);
-		repr += ", ";
-	}
-	repr += ") on ";
-	repr += (tensor.get_device() == 1) ? "CPU" : "GPU"; 
-	repr += ">";
 	return outs << repr;
 }
 
