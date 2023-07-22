@@ -7,8 +7,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  testview:
-    name: Test View Class
+  test_view:
+    name: View Class
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -24,8 +24,8 @@ jobs:
     - name: Run
       run: ./a.out
 
-  testtensor:
-    name: Test Tensor Class
+  test_tensor_constructors:
+    name: Tensor Constructors 
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -33,11 +33,37 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v3
     - name: Compile Test
-      run: g++ test/test_tensor.cc -I ./ 
+      run: g++ test/test_tensor_constructors.cc -I ./ 
     - name: Run
       run: ./a.out
 
-  elementvspytorch:
+  test_tensor_constructor_helpers:
+    name: Tensor Constructor Helpers 
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps: 
+    - name: Checkout Code
+      uses: actions/checkout@v3
+    - name: Compile Test
+      run: g++ test/test_tensor_constructor_helpers.cc -I ./ 
+    - name: Run
+      run: ./a.out
+
+  test_tensor_api:
+    name: Tensor Constructor Helpers 
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps: 
+    - name: Checkout Code
+      uses: actions/checkout@v3
+    - name: Compile Test
+      run: g++ test/test_tensor_api.cc -I ./ 
+    - name: Run
+      run: ./a.out
+
+  element_vs_pytorch:
     name : Element Indexing VS PyTorch
     runs-on: ubuntu-latest
     timeout-minutes: 20
