@@ -51,7 +51,7 @@ jobs:
       run: ./a.out
 
   test_tensor_api:
-    name: Tensor Constructor Helpers 
+    name: Tensor API 
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
