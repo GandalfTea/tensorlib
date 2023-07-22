@@ -159,14 +159,14 @@ TEST_CASE("Tensor Constructor Helpers", "[core]") {
 				}
 			}
 		}
-		/*
 		SECTION("eye") {
 			Tensor<float> a = Tensor<>::eye(N, 2);
+		/*
 			for(size_t i=0; i<N; i++) {
 				std::cout << a << std::endl;
 				CHECK(a(i, i).data()[0] == 1);
 			}
-		}
 		*/
+		}
 	}
 }
