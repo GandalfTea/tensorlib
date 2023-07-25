@@ -12,44 +12,68 @@ TEST_CASE("Test View Creation", "[core]") {
 		std::initializer_list<uint32_t> cv = {512};
 		std::initializer_list<uint32_t> cs = {1};
 		View a = View({512});	
-
 		CHECK(a.view);
 		CHECK(a.strides);
 		CHECK(a.ndim() == 1);
 		CHECK(a.numel() == 512);
-
 		uint32_t i=0;
-		for(const auto &x: cv) {
-			CHECK(a.view[i] == x);	
-			i++;
-		}
+		for(const auto &x: cv) { CHECK(a.view[i++] == x);	}
 		i=0;
-		for(const auto &x: cs) {
-			CHECK(a.strides[i] == x);	
-			i++;
-		}
+		for(const auto &x: cs) { CHECK(a.strides[i++] == x);	}
 	}
 
 	SECTION("Normal View {2, 2, 512}") {
 		std::initializer_list<uint32_t> cv = {2, 2, 512};
 		std::initializer_list<uint32_t> cs = {1024, 512, 1};
 		View a = View({2, 2, 512});	
-
 		CHECK(a.view);
 		CHECK(a.strides);
 		CHECK(a.ndim() == 3);
 		CHECK(a.numel() == 512*2*2);
-
 		uint32_t i=0;
-		for(const auto &x: cv) {
-			CHECK(a.view[i] == x);	
-			i++;
-		}
+		for(const auto &x: cv) { CHECK(a.view[i++] == x);	}
 		i=0;
-		for(const auto &x: cs) {
-			CHECK(a.strides[i] == x);	
-			i++;
-		}
+		for(const auto &x: cs) { CHECK(a.strides[i++] == x);	}
+	}
+
+	SECTION("sized_array Constructor {512, }") {
+		std::initializer_list<uint32_t> cv = {512};
+		std::initializer_list<uint32_t> cs = {1};
+		sized_array<uint32_t> s;
+		s.ptr = std::unique_ptr<uint32_t[]>(new uint32_t[1]);
+		s.ptr[0]=512;
+		s.size=1;
+		CHECK_NOTHROW(View(s.ptr, s.size));
+		View a = View(s.ptr, s.size);
+		CHECK(a.view);
+		CHECK(a.strides);
+		CHECK(a.ndim() == 1);
+		CHECK(a.numel() == 512);
+		uint32_t i=0;
+		for(const auto &x: cv) { CHECK(a.view[i++] == x);	}
+		i=0;
+		for(const auto &x: cs) { CHECK(a.strides[i++] == x);	}
+	}
+
+	SECTION("sized_array Constructor {2, 2, 512}") {
+		std::initializer_list<uint32_t> cv = {2, 2, 512};
+		std::initializer_list<uint32_t> cs = {1024, 512, 1};
+		sized_array<uint32_t> s;
+		s.ptr = std::unique_ptr<uint32_t[]>(new uint32_t[3]);
+		s.ptr[0]=2;
+		s.ptr[1]=2;
+		s.ptr[2]=512;
+		s.size=3;
+		View a = View(s.ptr, s.size);
+		CHECK(a.view);
+		CHECK(a.view);
+		CHECK(a.strides);
+		CHECK(a.ndim() == 3);
+		CHECK(a.numel() == 512*2*2);
+		uint32_t i=0;
+		for(const auto &x: cv) { CHECK(a.view[i++] == x);	}
+		i=0;
+		for(const auto &x: cs) { CHECK(a.strides[i++] == x);	}
 	}
 
 	SECTION("TENSOR_MAX_STORAGE_SIZE Fail") {
@@ -140,14 +164,14 @@ TEST_CASE("Test Movement OPs", "[core]") {
 		permarg[0] = 0;
 		permarg[1] = 2;
 		size_t len = 2;
-		CHECK(a.permute(permarg, len) == INVALID_DIMENSIONALITY);
+		CHECK(a.permute(permarg, len) == INVALID_NUMBER_OF_DIMENSIONS);
 		std::shared_ptr<uint32_t[]> permarg2 = std::make_unique<uint32_t[]>(4);
 		permarg2[0] = 0;
 		permarg2[1] = 2;
 		permarg2[2] = 2;
 		permarg2[3] = 2;
 		len = 4;
-		CHECK(a.permute(permarg2, len) == INVALID_DIMENSIONALITY);
+		CHECK(a.permute(permarg2, len) == INVALID_NUMBER_OF_DIMENSIONS);
 	}
 
 	SECTION("Test Permute Invalid Arguments") {
@@ -181,18 +205,18 @@ TEST_CASE("Test Movement OPs", "[core]") {
 		}
 	}
 
-	SECTION("Test Expand INVALID_DIMENSIONALITY") {
+	SECTION("Test Expand INVALID_NUMBER_OF_DIMENSIONS") {
 		View a = View({1, 512});	
 		std::shared_ptr<uint32_t[]> arg = std::make_unique<uint32_t[]>(3);
 		arg[0] = 5;
 		arg[1] = 512;
 		arg[2] = 512;
 		size_t len = 3;
-		CHECK(a.expand(arg, len) == INVALID_DIMENSIONALITY);
+		CHECK(a.expand(arg, len) == INVALID_NUMBER_OF_DIMENSIONS);
 		std::shared_ptr<uint32_t[]> arg2 = std::make_unique<uint32_t[]>(1);
 		arg[0] = 5;
 		len = 1;
-		CHECK(a.expand(arg2, len) == INVALID_DIMENSIONALITY);
+		CHECK(a.expand(arg2, len) == INVALID_NUMBER_OF_DIMENSIONS);
 	}
 
 	SECTION("Test Expand INVALID_ARGUMENTS") {
