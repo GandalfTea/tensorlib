@@ -112,17 +112,15 @@ struct View {
 	}
 
 	// TODO: Support new dims
+	// TODO: Cannot change element count because that doesn't allow me to expand back to original dim.
 	// NOTE: This changes total element count
 	op_ret expand(std::shared_ptr<uint32_t[]> &argview, size_t &len) {
-		if(len > this->numdim || len < this->numdim) return INVALID_NUMBER_OF_DIMENSIONS;
+		if(len != this->numdim) return INVALID_NUMBER_OF_DIMENSIONS;
 		for(size_t i=0; i<len; i++) if(argview[i]!=this->view[i] && this->view[i]!=1) return INVALID_ARGUMENTS;
-		uint64_t numel = 1;
 		for(size_t i=0; i<len; i++) {
 			if(argview[i]!=this->view[i]) this->strides[i] = 0;
 			this->view[i] = argview[i];
-			numel *= argview[i];
 		}
-		this->elements = numel;
 		return SUCCESSFUL;
 	}
 
@@ -455,10 +453,7 @@ class Tensor {
 			shape.size = nview.size();
 			shape.ptr = std::make_unique<uint32_t[]>(nview.size());
 			uint32_t i = 0;
-			for(const auto& x : nview) {
-				shape.ptr[i] = x;	
-				i++;
-			}
+			for(const auto& x : nview) { shape.ptr[i++] = x;	}
 			op_ret ret;
 			switch(op) {
 				case RESHAPE:
