@@ -238,7 +238,8 @@ class Tensor {
 			for(size_t i=0; i<dims; i++) shp.ptr[i] = size; 
 			auto ret = Tensor<T>(shp, device); 
 			ret.beye = true;
-			return Tensor<>({2});
+			ret.is_initialized = true;
+			return ret; 
 		}
 		
 		// auto a = Tensor<>::fill({2048, 2048}, 69.f);
@@ -304,7 +305,6 @@ class Tensor {
 		
 		static void like(Tensor rhs) {}
 		void operator=(Tensor<T>& rhs) {}
-
 
 		// Lambda OPs
 		void exec() {}
@@ -384,7 +384,7 @@ class Tensor {
 		uint64_t size() { return this->shape->numel(); }
 
 		T item() {
-			if(this->size == 1) {
+			if(this->size() == 1) {
 				return this->storage[0];
 			} else {
 				throw std::runtime_error("Call of .item() on Tensor with multiple elements.");
