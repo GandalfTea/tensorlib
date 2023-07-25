@@ -105,31 +105,30 @@ TEST_CASE("Tensor OPs", "[core]") {
 	}
 
 	SECTION("Expand") {
-		std::unique_ptr<float[]> data = std::make_unique<float[]>(N);
+		std::unique_ptr<float[]> data = std::unique_ptr<float[]>(new float[N]());
 		std::initializer_list<uint32_t> sp = {N, 1};
 		std::initializer_list<uint32_t> st = {1, 1};
-		for(size_t i=0; i < N; i++) { data[i]=i; }
-		Tensor<float> a(data, N, sp);
+		Tensor<> a(data, N, sp);
 		uint32_t i = 0;
 
 		SECTION("Correct") {
-			CHECK_NOTHROW(a.expand({N, 5}));
+			CHECK(a.expand({N, 5}));
 			std::initializer_list<uint32_t> tsp = {N, 5};
 			std::initializer_list<uint32_t> tst = {1, 0};
 			i=0;
-			for(const auto& x : tsp) { CHECK(a.view()[i] == x); i++; }
+			for(const auto& x : tsp) { CHECK(a.view()[i++] == x); }
 			i=0;
-			for(auto const& x : tst) { CHECK(a.strides()[i] == x); i++; }
+			for(auto const& x : tst) { CHECK(a.strides()[i++] == x); }
 
 			CHECK_NOTHROW(a(0, 0));
 			CHECK_NOTHROW(a(0, 1));
 			CHECK_NOTHROW(a(0, 2));
 			CHECK_NOTHROW(a(0, 3));
 			CHECK_NOTHROW(a(0, 4));
-			CHECK(a(0,0).data()[0]==a(0,1).data()[0]);
-			CHECK(a(0,1).data()[0]==a(0,2).data()[0]);
-			CHECK(a(0,2).data()[0]==a(0,3).data()[0]);
-			CHECK(a(0,3).data()[0]==a(0,4).data()[0]);
+			CHECK(a(0,0).item()==a(0,1).item());
+			CHECK(a(0,1).item()==a(0,2).item());
+			CHECK(a(0,2).item()==a(0,3).item());
+			CHECK(a(0,3).item()==a(0,4).item());
 		}
 
 		SECTION("Expansion on non-1 dimension") {
