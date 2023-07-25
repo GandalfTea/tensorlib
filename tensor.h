@@ -18,7 +18,6 @@ using std::size_t;
 
 namespace tensor {
 
-
 template<typename T>
 struct sized_array {
 	std::shared_ptr<T[]> ptr = nullptr;
@@ -29,10 +28,11 @@ typedef enum {
 	SUCCESSFUL,
 	INVALID_ARGUMENTS,
 	MEMORY_ALLOCATION_ERROR,
-	INVALID_DIMENSIONALITY,
+	INVALID_NUMBER_OF_DIMENSIONS,
 	GLOBAL_LIMIT_EXCEDED,
 	UNEXPECTED_ERROR,
-} OPRet;
+	NOT_IMPLEMENTED,
+} op_ret;
 
 typedef enum {
 	RESHAPE,
@@ -44,91 +44,106 @@ struct View {
 	std::shared_ptr<uint32_t[]> view = nullptr;
 	std::shared_ptr<uint32_t[]> strides = nullptr;
 
-	View(std::initializer_list<uint32_t> argview) {
-		if(argview.size() > TENSOR_MAX_DIM) throw std::runtime_error("GLOBAL_LIMIT_EXCEDED");
-		this->numdim = argview.size();
-
-		uint8_t i = 0;
-		uint64_t sum = 1;
-		this->view = std::make_unique<uint32_t[]>(argview.size());
+	View(std::initializer_list<uint32_t> argview) 
+		: numdim(argview.size())
+	{
+		if(argview.size() >= TENSOR_MAX_DIM) throw std::length_error("TENSOR_MAX_DIM Exceeded.");
+		this->view = std::unique_ptr<uint32_t[]>(new uint32_t[argview.size()]);
+		uint32_t i = 0; 
+		uint64_t acc = 1;
 		for(const auto& x : argview) {
-			this->view[i] = x;
-			sum *= x;
-			i++;
+			if(x <= 0) throw std::invalid_argument("View arguments cannot be equal or smaller than 0."); 
+			this->view[i++] = x;
+			acc *= x;
 		}
-		if(sum > TENSOR_MAX_STORAGE_SIZE) {
-			throw std::runtime_error("Number of elements in Tensor exceeds TENSOR_MAX_STORAGE_SIZE.");
-		}
-		this->total = sum;
+		if(acc > TENSOR_MAX_STORAGE_SIZE) throw std::length_error("TENSOR_MAX_STORAGE_SIZE Exceeded.");
+		this->elements = acc;
 		this->restride();
 	}
 
-	OPRet reshape(std::shared_ptr<uint32_t[]> &argview, size_t &newdim) {
-		if(newdim >= TENSOR_MAX_DIM) return GLOBAL_LIMIT_EXCEDED;
-		uint64_t product = 1;
-		for(size_t i=0; i < newdim; i++) { 
-			if(argview[i] == 0) return INVALID_ARGUMENTS;
-			product *= argview[i]; 
-		}
-		if(product != this->total) return INVALID_ARGUMENTS;
-
-		this->numdim = newdim;
-		this->view = std::make_unique<uint32_t[]>(newdim);
-		for(size_t i=0; i < newdim; i++) {
+	View(std::shared_ptr<uint32_t[]>& argview, size_t &dim) 
+		: numdim(dim)
+	{
+		if(dim >= TENSOR_MAX_DIM) throw std::length_error("TENSOR_MAX_DIM Exceeded.");
+		this->view = std::unique_ptr<uint32_t[]>(new uint32_t[dim]);
+		uint64_t acc = 1;
+		for(size_t i=0; i<dim; i++) {
+			if(argview[i] <= 0) throw std::invalid_argument("View arguments cannot be equal or smaller than 0."); 
 			this->view[i] = argview[i];
+			acc *= argview[i];
 		}
+		if(acc > TENSOR_MAX_STORAGE_SIZE) throw std::length_error("TENSOR_MAX_STORAGE_SIZE Exceeded.");
+		this->elements = acc;
+		this->restride();
+	}
+
+	// No changes are made if movement OPs fail.
+	
+	// TODO: Allow -1 for auto dims
+	op_ret reshape(std::shared_ptr<uint32_t[]> &argview, size_t &dim) {
+		if(dim >= TENSOR_MAX_DIM) return GLOBAL_LIMIT_EXCEDED;
+		std::unique_ptr<uint32_t[]> ptr = std::unique_ptr<uint32_t[]>(new uint32_t[dim]);
+		uint64_t acc = 1;
+		for(size_t i=0; i < dim; i++) { 
+			if(argview[i] <= 0) return INVALID_ARGUMENTS;
+			ptr[i] = argview[i];
+			acc *= argview[i]; 
+		}
+		if(acc != this->elements) return INVALID_ARGUMENTS;
+		this->view = std::move(ptr);
+		this->numdim=dim;
 		this->restride();
 		return SUCCESSFUL;
 	}
 
-	OPRet permute(std::shared_ptr<uint32_t[]> &idxs, size_t &len) {
-		if(len != this->numdim) return INVALID_DIMENSIONALITY;
-		std::shared_ptr<uint32_t[]> newview = std::make_unique<uint32_t[]>(len);
-		std::shared_ptr<uint32_t[]> newstrides = std::make_unique<uint32_t[]>(len);
-		//TODO: Do not allow repeat dims
+	//TODO: Do not allow repeat dims
+	op_ret permute(std::shared_ptr<uint32_t[]> &idxs, size_t &len) {
+		if(len != this->numdim) return INVALID_NUMBER_OF_DIMENSIONS;
+		std::unique_ptr<uint32_t[]> newview = std::unique_ptr<uint32_t[]>(new uint32_t[len]);
+		std::unique_ptr<uint32_t[]> newstrd = std::unique_ptr<uint32_t[]>(new uint32_t[len]);
 		for(size_t i=0; i < len; i++) {
-			if(idxs[i] >= this->numdim) return INVALID_ARGUMENTS;
+			if(idxs[i] >= this->numdim || idxs[i] < 0) return INVALID_ARGUMENTS;
 			newview[i] = this->view[idxs[i]];	
-			newstrides[i] = this->strides[idxs[i]];
+			newstrd[i] = this->strides[idxs[i]];
 		}
-		this->view = newview;
-		this->strides = newstrides;
+		this->view = std::move(newview);
+		this->strides = std::move(newstrd);
 		return SUCCESSFUL;
 	}
 
-	// For now we don't support new dimensions.
-	OPRet expand(std::shared_ptr<uint32_t[]> &argview, size_t &len) {
-		if(len != this->numdim) return INVALID_DIMENSIONALITY;
-		for(size_t i=0; i < len; i++) {
-			if(argview[i] != this->view[i]) {
-				if(this->view[i] == 1) {
-					this->view[i] = argview[i];
-					this->strides[i] = 0;
-				} else {
-					return INVALID_ARGUMENTS;
-				}
-			}
+	// TODO: Support new dims
+	// NOTE: This changes total element count
+	op_ret expand(std::shared_ptr<uint32_t[]> &argview, size_t &len) {
+		if(len > this->numdim || len < this->numdim) return INVALID_NUMBER_OF_DIMENSIONS;
+		for(size_t i=0; i<len; i++) if(argview[i]!=this->view[i] && this->view[i]!=1) return INVALID_ARGUMENTS;
+		uint64_t numel = 1;
+		for(size_t i=0; i<len; i++) {
+			if(argview[i]!=this->view[i]) this->strides[i] = 0;
+			this->view[i] = argview[i];
+			numel *= argview[i];
 		}
+		this->elements = numel;
 		return SUCCESSFUL;
 	}
 
-	// TODO:  Implement SHRINK, FLIP and PAD
+	// TODO: Implement
+	op_ret shrink(std::shared_ptr<uint32_t[]> &argview, size_t &len) { return NOT_IMPLEMENTED; }
+	op_ret flip(std::shared_ptr<uint32_t[]> &argview, size_t &len) { return NOT_IMPLEMENTED; }
+	op_ret pad(std::shared_ptr<uint32_t[]> &argview, size_t &len) { return NOT_IMPLEMENTED; }
 
 	uint32_t ndim()  { return this->numdim; }
-	uint64_t numel() { return this->total; }
+	uint64_t numel() { return this->elements; }
 
 	private:
 		uint32_t numdim = 0;
-		uint64_t total = 0;
+		uint64_t elements = 0;
 
-		OPRet restride() {
-			this->strides = std::make_unique<uint32_t[]>(this->numdim);
-			for(size_t i=0; i <= numdim; i++) { this->strides[i]=1; }
-			for(size_t i=this->numdim; i > 0; i--) {
-				if(i==this->numdim) continue;	
+		void restride() {
+			this->strides = std::unique_ptr<uint32_t[]>(new uint32_t[this->numdim]);
+			this->strides[this->numdim-1] = 1;
+			for(size_t i=this->numdim-1; i > 0; --i) {
 				this->strides[i-1] = this->strides[i] * view[i];
 			}	
-			return SUCCESSFUL;
 		}
 };
 
@@ -444,7 +459,7 @@ class Tensor {
 				shape.ptr[i] = x;	
 				i++;
 			}
-			OPRet ret;
+			op_ret ret;
 			switch(op) {
 				case RESHAPE:
 					ret = this->shape->reshape(shape.ptr, shape.size);
@@ -461,7 +476,7 @@ class Tensor {
 				case INVALID_ARGUMENTS:
 					throw TensorException(INVALID_SHAPE_OPERATION, "Invalid Arguments in function permute().");
 					return 0;
-				case INVALID_DIMENSIONALITY:
+				case INVALID_NUMBER_OF_DIMENSIONS:
 					throw TensorException(INVALID_SHAPE_OPERATION, "Invalid Dimensions given for function permute().");
 					return 0;
 				case GLOBAL_LIMIT_EXCEDED:
@@ -518,9 +533,5 @@ inline std::ostream& operator<<(std::ostream& outs, View& view) {
 
 	return outs << repr;
 }
-
-
-
-
 } // namespace
 #endif
