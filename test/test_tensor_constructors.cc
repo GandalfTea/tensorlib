@@ -19,7 +19,7 @@ TEST_CASE("Tensor Constructor", "[core]") {
 		CHECK(!a.is_initialized);
 		CHECK(a.strides());
 		CHECK(a.view());
-		CHECK(a.size == N*N);
+		CHECK(a.size() == N*N);
 		CHECK(a.ndim()==2);
 		CHECK(a.device == CPU);
 		std::initializer_list<uint32_t> shp = {N, N};
@@ -45,7 +45,7 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				Tensor<uint8_t> a(data, N, {2, 2, N/4});
 				CHECK(a.is_initialized);
 				CHECK(a.device == CPU);
-				CHECK(a.size == N);
+				CHECK(a.size() == N);
 				CHECK(a.data());
 				CHECK(a.strides());
 				CHECK(a.view());
@@ -64,7 +64,7 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				Tensor<uint16_t> a(data, N, {2, 2, N/4});
 				CHECK(a.is_initialized);
 				CHECK(a.device == CPU);
-				CHECK(a.size == N);
+				CHECK(a.size() == N);
 				CHECK(a.data());
 				CHECK(a.strides());
 				CHECK(a.view());
@@ -83,7 +83,7 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				Tensor<uint32_t> a(data, N, {2, 2, N/4});
 				CHECK(a.is_initialized);
 				CHECK(a.device == CPU);
-				CHECK(a.size == N);
+				CHECK(a.size() == N);
 				CHECK(a.data());
 				CHECK(a.strides());
 				CHECK(a.view());
@@ -102,7 +102,7 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				Tensor<uint64_t> a(data, N, {2, 2, N/4});
 				CHECK(a.is_initialized);
 				CHECK(a.device == CPU);
-				CHECK(a.size == N);
+				CHECK(a.size() == N);
 				CHECK(a.data());
 				CHECK(a.strides());
 				CHECK(a.view());
@@ -121,7 +121,7 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				Tensor<int8_t> a(data, N, {2, 2, N/4});
 				CHECK(a.is_initialized);
 				CHECK(a.device == CPU);
-				CHECK(a.size == N);
+				CHECK(a.size() == N);
 				CHECK(a.data());
 				CHECK(a.strides());
 				CHECK(a.view());
@@ -140,7 +140,7 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				Tensor<int16_t> a(data, N, {2, 2, N/4});
 				CHECK(a.is_initialized);
 				CHECK(a.device == CPU);
-				CHECK(a.size == N);
+				CHECK(a.size() == N);
 				CHECK(a.data());
 				CHECK(a.strides());
 				CHECK(a.view());
@@ -159,7 +159,7 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				Tensor<int32_t> a(data, N, {2, 2, N/4});
 				CHECK(a.is_initialized);
 				CHECK(a.device == CPU);
-				CHECK(a.size == N);
+				CHECK(a.size() == N);
 				CHECK(a.data());
 				CHECK(a.strides());
 				CHECK(a.view());
@@ -178,7 +178,7 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				Tensor<int64_t> a(data, N, {2, 2, N/4});
 				CHECK(a.is_initialized);
 				CHECK(a.device == CPU);
-				CHECK(a.size == N);
+				CHECK(a.size() == N);
 				CHECK(a.data());
 				CHECK(a.strides());
 				CHECK(a.view());
@@ -197,7 +197,7 @@ TEST_CASE("Tensor Constructor", "[core]") {
 				Tensor<float> a(data, N, {2, 2, N/4});
 				CHECK(a.is_initialized);
 				CHECK(a.device == CPU);
-				CHECK(a.size == N);
+				CHECK(a.size() == N);
 				CHECK(a.data());
 				CHECK(a.strides());
 				CHECK(a.view());
@@ -225,7 +225,7 @@ TEST_CASE("Tensor Constructor", "[core]") {
 			Tensor<float> a({0, 1, 2, 3, 4, 5}, {2, 3});
 			CHECK(a.is_initialized);
 			CHECK(a.device == CPU);
-			CHECK(a.size == 6);
+			CHECK(a.size() == 6);
 			CHECK(a.data());
 			CHECK(a.strides());
 			CHECK(a.view());
