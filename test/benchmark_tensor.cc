@@ -7,25 +7,41 @@
 
 using namespace tensor;
 
-void create_tensor_2048x2048_float32() {
+void create_tensor_2048x2048_float32_stack_initialized() {
 	std::unique_ptr<float[]> data = std::make_unique<float[]>(2048*2048);
 	for(size_t i=0; i < 2048*2048; i++) { data[i]=i; }
 	Tensor<float> a(data, 2048*2048, {2048, 2048});
 }
 
-void create_tensor_4096x4096_float32() {
+void create_tensor_2048x2048_float32_heap() {
+	std::unique_ptr<float[]> data = std::unique_ptr<float[]>(new float[2048*2048]());
+	Tensor<float> a(data, 2048*2048, {2048, 2048});
+}
+
+void create_tensor_4096x4096_float32_stack_initialized() {
 	std::unique_ptr<float[]> data = std::make_unique<float[]>(4096*4096);
-	for(size_t i=0; i < 4096*4096; i++) { data[i]=0.f; }
+	for(size_t i=0; i < 4096*4096; i++) { data[i]=i; }
+	Tensor<float> a(data, 4096*4096, {4096, 4096});
+}
+
+void create_tensor_4096x4096_float32_heap() {
+	std::unique_ptr<float[]> data = std::unique_ptr<float[]>(new float[4096*4096]());
 	Tensor<float> a(data, 4096*4096, {4096, 4096});
 }
 
 TEST_CASE("Benchmarks") {
 	SECTION("Full initialization") {
 		BENCHMARK(std::to_string(2048)+"x"+std::to_string(2048)+" float32 initialization") {
-			create_tensor_2048x2048_float32();
+			create_tensor_2048x2048_float32_stack_initialized();
+		};
+		BENCHMARK(std::to_string(2048)+"x"+std::to_string(2048)+" float32 default init") {
+			create_tensor_2048x2048_float32_heap();
 		};
 		BENCHMARK(std::to_string(4096)+"x"+std::to_string(4096)+" float32 initialization") {
-			create_tensor_4096x4096_float32();
+			create_tensor_4096x4096_float32_stack_initialized();
+		};
+		BENCHMARK(std::to_string(4096)+"x"+std::to_string(4096)+" float32 default init") {
+			create_tensor_4096x4096_float32_heap();
 		};
 	}
 
@@ -110,6 +126,12 @@ TEST_CASE("Benchmarks") {
 		a.reshape({N, N , 1});
 		BENCHMARK("Expand "+std::to_string(N)+","+std::to_string(N)+",1"+" -> "+std::to_string(N)+","+std::to_string(N)+",5") {
 			return a.expand({N, N, 5});
+		};
+		BENCHMARK("Stride 1 element") {
+			return a(0, 0);
+		};
+		BENCHMARK("Stride "+std::to_string(N)+" elements") {
+			return a(0);
 		};
 	}
 }
