@@ -33,7 +33,7 @@ TEST_CASE("Tensor Constructor Helpers", "[core]") {
 			}
 			for(size_t i=0; i < a.view()[0]; i++) {
 				for(size_t j=0; j < a.view()[1]; j++) {
-					CHECK_THAT(a(i, j).data()[0], WithinAbsMatcher(1.25, EPSILON));
+					CHECK_THAT(a(i, j).item(), WithinAbsMatcher(1.25, EPSILON));
 				}
 			}
 		}
@@ -42,7 +42,7 @@ TEST_CASE("Tensor Constructor Helpers", "[core]") {
 			auto a = Tensor<>::fill({N, N}, 3.14);
 			for(size_t i=0; i < a.view()[0]; i++) {
 				for(size_t j=0; j < a.view()[1]; j++) {
-					CHECK_THAT(a(i, j).data()[0], WithinAbsMatcher(3.14, EPSILON));
+					CHECK_THAT(a(i, j).item(), WithinAbsMatcher(3.14, EPSILON));
 				}
 			}
 		}
@@ -160,13 +160,34 @@ TEST_CASE("Tensor Constructor Helpers", "[core]") {
 			}
 		}
 		SECTION("eye") {
-			Tensor<float> a = Tensor<>::eye(N, 2);
-		/*
-			for(size_t i=0; i<N; i++) {
-				std::cout << a << std::endl;
-				CHECK(a(i, i).data()[0] == 1);
+			SECTION(std::to_string(N)+"x"+std::to_string(N)) {
+				Tensor<float> a = Tensor<>::eye(N, 2);
+				for(size_t i=0; i<N; i++) {
+					for(size_t j=0; j<N; j++) {
+						if(i == j) {
+							CHECK(a(i, j).item() == 1);
+						} else {
+							CHECK(a(i, j).item() == 0);
+						}
+					}
+				}
 			}
-		*/
+			SECTION("4 dim") {
+				Tensor<float> a = Tensor<>::eye(10, 4);
+				for(size_t f=0; f<10; f++) {
+					for(size_t u=0; u<10; u++) {
+						for(size_t c=0; c<10; c++) {
+							for(size_t k=0; k<10; k++) {
+								if(f==u && u==c && c==k) {
+									CHECK(a(f,u,c,k).item() == 1);
+								} else {
+									CHECK(a(f,u,c,k).item() == 0);
+								}
+							}
+						}
+					}
+				}
+			}
 		}
 	}
 }
