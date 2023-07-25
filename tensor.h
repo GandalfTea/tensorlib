@@ -181,13 +181,13 @@ class Tensor {
 
 		Tensor(std::unique_ptr<T[]> &arr, size_t size, std::initializer_list<uint32_t> shape, Device device=CPU) 
 			: storage(std::move(arr)), shape(std::make_unique<View>(View(shape))),
-				device(device), is_initialized(true)
+				device(device), is_initialized(true), bresolved(true)
 		{
 			if(size != this->shape->numel()) throw std::runtime_error("Shape does not match data.");
 		};
 
 		Tensor(std::initializer_list<T> arr, std::initializer_list<uint32_t> shape, Device device=CPU, bool is_fill=false)
-			: shape(std::make_unique<View>(View(shape))), device(device), is_initialized(true)
+			: shape(std::make_unique<View>(View(shape))), device(device), is_initialized(true), bresolved(true)
 		{
 			if(!is_fill) if(arr.size() != this->shape->numel()) throw std::runtime_error("Shape does not match data.");
 			std::unique_ptr<T[]> narr = std::unique_ptr<T[]>(new T[arr.size()]);
@@ -211,9 +211,9 @@ class Tensor {
 				};
 				for(size_t i=0; i < this->shape->ndim(); i++) this->shape->strides[i] = 0;
 			} else {
-				if(arr.size() != this->shape->numel()) throw std::runtime_error("Shape does not match data.");
 				this->shape = std::make_unique<View>(View({arr.size()}));
 				this->shape->reshape(shp.ptr, shp.size);
+				if(arr.size() != this->shape->numel()) throw std::runtime_error("Shape does not match data.");
 			}
 			std::unique_ptr<T[]> narr = std::unique_ptr<T[]>(new T[arr.size()]);
 			uint32_t i = 0;
