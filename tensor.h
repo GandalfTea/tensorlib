@@ -5,6 +5,7 @@
 #include <string>
 #include <memory>
 #include <cmath>
+#include <random>
 #include <stdlib.h>
 #include <limits.h>
 #include <stdexcept>
