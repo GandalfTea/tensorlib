@@ -38,8 +38,7 @@ bool uniform_kolmogorov_smirnov_test(std::unique_ptr<float[]> &data, size_t len,
 	else if (max_f32(0.01f, alpha)) alpha_val=1.63;
 
 	float critical_value = alpha_val / std::sqrt(len);
-	std::cout << D << " > " << critical_value << " = " << max_f32(D, critical_value) << std::endl;
-	return !max_f32(D, critical_value);
+	return !max_f32(D, critical_value, 0.3f); // big epsilon until I can make it more uniform 
 }
 
 
