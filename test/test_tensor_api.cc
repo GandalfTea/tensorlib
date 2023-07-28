@@ -1,6 +1,7 @@
 
 #define CATCH_CONFIG_MAIN
 #include <algorithm>
+#include <cassert>
 #include <math.h>
 #include "catch.hpp"
 #include "tensor.h"
@@ -19,7 +20,8 @@ bool max_f32(float a, float b, float epsilon) {
 	return (a - b) > ( (fabs(a) < fabs(b) ? fabs(b) : fabs(a)) * epsilon);
 }
 
-bool kolmogorov_smirnov_test(std::unique_ptr<float[]> &data, size_t len, float critical_value) {
+// alpha is allowed margin of error, alpha < .20
+bool kolmogorov_smirnov_test(std::unique_ptr<float[]> &data, size_t len, float alpha) {
 	float D, d_plus_max, d_min_max;
 	std::sort(&data[0], &data[len-1], std::greater<float>());
 	for(size_t i=0; i<len; i++) {
@@ -29,6 +31,20 @@ bool kolmogorov_smirnov_test(std::unique_ptr<float[]> &data, size_t len, float c
 		if(max_f32(d_min, d_min_max, EPSILON)) d_min_max = d_min;
 	}
 	max_f32(d_plus_max, d_min_max) ? D = d_plus_max : D=d_min_max;
+	float alpha_val;
+	switch(alpha) {
+		case max_f32(0.20f, alpha):
+			alpha_val = 1.07;	
+		case max_f32(0.10f, alpha):
+			alpha_val = 1.22;	
+		case max_f32(0.05f, alpha):
+			alpha_val = 1.36;	
+		case max_f32(0.02f, alpha):
+			alpha_val = 1.52;	
+		case max_f32(0.01f, alpha):
+			alpha_val = 1.63;	
+	}
+	float critical_value = alpha_val / std::sqrt(len);
 	return max_f32(D, critical_value) ? false : true;
 }
 
