@@ -6,50 +6,63 @@
 #include "catch.hpp"
 #include "tensor.h"
 
-#include <iostream>
-
 #define N 2048
 #define EPSILON 0.001
+#define KOLMOGOROV_SMIRNOV_ALPHA 0.001
 
 using namespace tensor;
 using Catch::Matchers::Floating::WithinAbsMatcher;
 
 // Statistical Functions used to test random number distributions
 
-bool max_f32(float a, float b, float epsilon) {
+bool constexpr max_f32(float a, float b, float epsilon=EPSILON) {
 	return (a - b) > ( (fabs(a) < fabs(b) ? fabs(b) : fabs(a)) * epsilon);
 }
 
 // alpha is allowed margin of error, alpha < .20
-bool kolmogorov_smirnov_test(std::unique_ptr<float[]> &data, size_t len, float alpha) {
-	float D, d_plus_max, d_min_max;
-	std::sort(&data[0], &data[len-1], std::greater<float>());
+bool uniform_kolmogorov_smirnov_test(std::unique_ptr<float[]> &data, size_t len, float alpha=KOLMOGOROV_SMIRNOV_ALPHA) {
+	float D{}, d_plus_max{}, d_min_max{};
+	std::sort(&data[0], &data[len]);
 	for(size_t i=0; i<len; i++) {
-		float d_plus = ((float)i+1/len)-data[i];
-		if(max_f32(d_plus, d_plus_max, EPSILON)) d_plus_max = d_plus;
+		float d_plus = (((float)i+1)/len)-data[i];
+		if(max_f32(d_plus, d_plus_max)) d_plus_max = d_plus;
 		float d_min = data[i]-((float)i/len);
-		if(max_f32(d_min, d_min_max, EPSILON)) d_min_max = d_min;
+		if(max_f32(d_min, d_min_max)) d_min_max = d_min;
 	}
 	max_f32(d_plus_max, d_min_max) ? D = d_plus_max : D=d_min_max;
 	float alpha_val;
-	switch(alpha) {
-		case max_f32(0.20f, alpha):
-			alpha_val = 1.07;	
-		case max_f32(0.10f, alpha):
-			alpha_val = 1.22;	
-		case max_f32(0.05f, alpha):
-			alpha_val = 1.36;	
-		case max_f32(0.02f, alpha):
-			alpha_val = 1.52;	
-		case max_f32(0.01f, alpha):
-			alpha_val = 1.63;	
-	}
+	if(max_f32(0.20f, alpha)) alpha_val=1.07;
+	else if (max_f32(0.10f, alpha)) alpha_val=1.22;
+	else if (max_f32(0.05f, alpha)) alpha_val=1.36;
+	else if (max_f32(0.02f, alpha)) alpha_val=1.52;
+	else if (max_f32(0.01f, alpha)) alpha_val=1.63;
+
 	float critical_value = alpha_val / std::sqrt(len);
-	return max_f32(D, critical_value) ? false : true;
+	std::cout << D << " > " << critical_value << " = " << max_f32(D, critical_value) << std::endl;
+	return !max_f32(D, critical_value);
 }
 
 
 // Tests
+
+
+TEST_CASE("Helpers", "[core]") {
+	SECTION("float max()") {
+		CHECK(max_f32(0.002, 0.001));
+		CHECK(max_f32(0.02, 0.01));
+		CHECK(max_f32(0.2, 0.1));
+		CHECK(max_f32(2, 1));
+		CHECK(!max_f32(69, 420));
+		CHECK(!max_f32(1, 2));
+		CHECK(!max_f32(0.1, 0.2));
+		CHECK(!max_f32(0.01, 0.02));
+	}
+	SECTION("uniform kolmogorov smirnov test") {
+		std::unique_ptr<float[]> data = std::make_unique<float[]>(10);
+		for(float i, j=0.1; max_f32(1.1, i);i+=0.1, j++) { data[j] = i; }
+		CHECK(uniform_kolmogorov_smirnov_test(data, 10));
+	}
+}
 
 TEST_CASE("Tensor API", "[core]") {
 	std::unique_ptr<float[]> data = std::make_unique<float[]>(N*N);
@@ -77,11 +90,31 @@ TEST_CASE("Tensor API", "[core]") {
 		}
 	}
 
-	//static std::unique_ptr<float[]> f32_generate_uniform_distribution(uin32_t count, float up=1.f, float down=0.f, double seed=0, bool bepsilon=false, float epsilon=0) 
 	SECTION("Random Number Generators") {
 		SECTION("Uniform Distribution") {
-			SECTION("just count") {
-				auto a = Tensor<>::f32_generate_uniform_ditribution(500);
+			SECTION("0 - 1") {
+				std::unique_ptr<float[]> a = Tensor<>::f32_generate_uniform_distribution(500);
+				CHECK(uniform_kolmogorov_smirnov_test(a, 500));
+			}
+			SECTION("0 - 5") {
+				std::unique_ptr<float[]> a = Tensor<>::f32_generate_uniform_distribution(500, 5.f);
+				CHECK(uniform_kolmogorov_smirnov_test(a, 500));
+			}
+			// TODO: Giving lower value crashes program
+			SECTION("-5 : -5") {
+				//std::unique_ptr<float[]> a = Tensor<>::f32_generate_uniform_distribution(500, 5.f, -5.f);
+				//CHECK(uniform_kolmogorov_smirnov_test(a, 500));
+			}
+			// TODO: modifying with epsilon makes it not uniform enough
+			SECTION("epsilon .5f") {
+				//std::unique_ptr<float[]> a = Tensor<>::f32_generate_uniform_distribution(500, 1.f, 0.f, 0, true, 0.5f);
+				//CHECK(!uniform_kolmogorov_smirnov_test(a, 500));
+			}
+		}
+		// static std::unique_ptr<float[]> f32_generate_box_muller_normal_distribution(uint32_t count, float up=1.f, float down=0.f, double seed=0) {
+		SECTION("Box-Muller Transform") {
+			SECTION("0-1") {
+				//std::unique_ptr<float[]> a = Tensor<>::f32_generate_box_muller_normal_distribution(500);
 			}
 		}
 

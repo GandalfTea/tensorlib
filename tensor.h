@@ -289,15 +289,16 @@ class Tensor {
 		static Tensor<T> randn(std::initializer_list<uint32_t> shp, T up=1.f, T down=0.f, 
 										       uint32_t seed=0, Device device=CPU, Distribution dist=NORMAL) 
 		{
-			auto ret = Tensor<T>(shp, device);
-			std::unique_ptr<T[]> data;
-			switch(dist):
+			auto ret = Tensor<float>(shp, device);
+			std::unique_ptr<float[]> data;
+			switch(dist) {
 				case UNIFORM:
-					ret = this->f32_generate_uniform_distribution(ret.size(), up, down, seed);
+					ret = Tensor<>::f32_generate_uniform_distribution(ret.size(), up, down, seed);
 					break;
 				case NORMAL: 
-					ret = this->f32_generate_box_muller_distribution(ret.size(), up, down, seed);
+					ret = Tensor<>::f32_generate_box_muller_normal_distribution(ret.size(), up, down, seed);
 					break;
+			}
 
 			ret.set_data(data, ret.size());
 			return ret;
@@ -435,13 +436,12 @@ class Tensor {
 			return ret;
 		}
 
-		// Static helpers
-		
-		static std::unique_ptr<float[]> f32_generate_uniform_distribution(uin32_t count, float up=1.f, float down=0.f, double seed=0, 
+		// Random number generators
+		static std::unique_ptr<float[]> f32_generate_uniform_distribution(uint32_t count, float up=1.f, float down=0.f, double seed=0, 
 										                                                  bool bepsilon=false, float epsilon=0) 
 		{
-			if(seed!=0) static std::mt19937 rng(seed); 
-			else static std::mt19937 rng(std::random_device{}());
+ 			static std::mt19937 rng(std::random_device{}());
+			if(seed!=0) rng.seed(seed);
 			static std::uniform_real_distribution<> dist(down, up);
 			std::unique_ptr<float[]> ret = std::unique_ptr<float[]>(new float[count]);
 			if(bepsilon) {
@@ -455,18 +455,18 @@ class Tensor {
 		}
 
 		// NOTE: If count is odd, it adds an extra element
-		static std::unique_ptr<float[]> f32_generate_box_muller_distribution(uint32_t count, float up=1.f, float down=0.f, double seed=0) {
+		static std::unique_ptr<float[]> f32_generate_box_muller_normal_distribution(uint32_t count, float up=1.f, float down=0.f, double seed=0) {
 			if(count % 2 != 0) count++; 
 			constexpr float epsilon = std::numeric_limits<float>::epsilon();
 			constexpr float two_pi = 2.0 * M_PI;
 			std::unique_ptr<float[]> u1, u2;
 			std::unique_ptr<float[]> ret = std::unique_ptr<float[]>(new float[count]);
-			u1 = this->generate_uniform_distribution(count/2, up, down, seed, true, epsilon);
-			u2 = this->generate_uniform_distribution(count/2, up, down, seed);
+			u1 = Tensor<>::f32_generate_uniform_distribution(count/2, up, down, seed, true, epsilon);
+			u2 = Tensor<>::f32_generate_uniform_distribution(count/2, up, down, seed);
 			for(size_t i=0, j=0; i<count; i++, j+=2) {
-				auto mag = sigma * std::sqrt(-2.0 * std::log(u1[i]));
-				ret[j]   = mag * std::cos(two_pi * u2[i]) + mu;
-				ret[j+1] = mag * std::sin(two_pi * u2[i]) + mu;
+				auto mag = std::sqrt(-2.0 * std::log(u1[i]));
+				ret[j]   = mag * std::cos(two_pi * u2[i]);
+				ret[j+1] = mag * std::sin(two_pi * u2[i]);
 			}
 			return ret;
 		}
