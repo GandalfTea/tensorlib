@@ -1,5 +1,7 @@
 
 #define CATCH_CONFIG_MAIN
+#include <algorithm>
+#include <math.h>
 #include "catch.hpp"
 #include "tensor.h"
 
@@ -10,6 +12,28 @@
 
 using namespace tensor;
 using Catch::Matchers::Floating::WithinAbsMatcher;
+
+// Statistical Functions used to test random number distributions
+
+bool max_f32(float a, float b, float epsilon) {
+	return (a - b) > ( (fabs(a) < fabs(b) ? fabs(b) : fabs(a)) * epsilon);
+}
+
+bool kolmogorov_smirnov_test(std::unique_ptr<float[]> &data, size_t len, float critical_value) {
+	float D, d_plus_max, d_min_max;
+	std::sort(&data[0], &data[len-1], std::greater<float>());
+	for(size_t i=0; i<len; i++) {
+		float d_plus = ((float)i+1/len)-data[i];
+		if(max_f32(d_plus, d_plus_max, EPSILON)) d_plus_max = d_plus;
+		float d_min = data[i]-((float)i/len);
+		if(max_f32(d_min, d_min_max, EPSILON)) d_min_max = d_min;
+	}
+	max_f32(d_plus_max, d_min_max) ? D = d_plus_max : D=d_min_max;
+	return max_f32(D, critical_value) ? false : true;
+}
+
+
+// Tests
 
 TEST_CASE("Tensor API", "[core]") {
 	std::unique_ptr<float[]> data = std::make_unique<float[]>(N*N);
@@ -35,6 +59,16 @@ TEST_CASE("Tensor API", "[core]") {
 				// No clue how yet	
 			}
 		}
+	}
+
+	//static std::unique_ptr<float[]> f32_generate_uniform_distribution(uin32_t count, float up=1.f, float down=0.f, double seed=0, bool bepsilon=false, float epsilon=0) 
+	SECTION("Random Number Generators") {
+		SECTION("Uniform Distribution") {
+			SECTION("just count") {
+				auto a = Tensor<>::f32_generate_uniform_ditribution(500);
+			}
+		}
+
 	}
 
 }
