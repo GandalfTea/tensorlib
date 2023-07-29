@@ -2,7 +2,7 @@
 #define CATCH_CONFIG_MAIN
 #include <algorithm>
 #include <cassert>
-#include <math.h>
+#include <cmath>
 #include "catch.hpp"
 #include "tensor.h"
 
@@ -19,6 +19,14 @@ bool constexpr max_f32(float a, float b, float epsilon=EPSILON) {
 	return (a - b) > ( (fabs(a) < fabs(b) ? fabs(b) : fabs(a)) * epsilon);
 }
 
+bool constexpr eql_f32(float a, float b, float epsilon=EPSILON) {
+	return fabs(a-b) <= ( (fabs(a) > fabs(b) ? fabs(b) : fabs(a)) * epsilon);
+}
+
+bool constexpr aeql_f32(float a, float b, float epsilon=EPSILON) {
+	return fabs(a-b) <= ( (fabs(a) < fabs(b) ? fabs(b) : fabs(a)) * epsilon);
+}
+
 // alpha is allowed margin of error, alpha < .20
 bool uniform_kolmogorov_smirnov_test(std::unique_ptr<float[]> &data, size_t len, float alpha=KOLMOGOROV_SMIRNOV_ALPHA) {
 	float D{}, d_plus_max{}, d_min_max{};
@@ -31,14 +39,33 @@ bool uniform_kolmogorov_smirnov_test(std::unique_ptr<float[]> &data, size_t len,
 	}
 	max_f32(d_plus_max, d_min_max) ? D = d_plus_max : D=d_min_max;
 	float alpha_val;
-	if(max_f32(0.20f, alpha)) alpha_val=1.07;
-	else if (max_f32(0.10f, alpha)) alpha_val=1.22;
-	else if (max_f32(0.05f, alpha)) alpha_val=1.36;
-	else if (max_f32(0.02f, alpha)) alpha_val=1.52;
-	else if (max_f32(0.01f, alpha)) alpha_val=1.63;
+	if(eql_f32(0.20f, alpha)) alpha_val=1.07;
+	else if (eql_f32(0.10f, alpha)) alpha_val=1.22;
+	else if (eql_f32(0.05f, alpha)) alpha_val=1.36;
+	else if (eql_f32(0.02f, alpha)) alpha_val=1.52;
+	else if (eql_f32(0.01f, alpha)) alpha_val=1.63;
+	else alpha_val=1.63;
 
 	float critical_value = alpha_val / std::sqrt(len);
 	return !max_f32(D, critical_value, 0.5f); // big epsilon until I can make it more uniform 
+}
+
+float get_cdf_normal_dist(float x, float mean=0, float stdiv=1) {
+	float arg = (x-mean)/(stdiv*std::sqrt(2));
+	return 0.5*(1+std::erf(arg));
+}
+
+float get_mean(std::unique_ptr<float[]> &data, size_t len) {
+	float sum=0.f;
+	for(size_t i=0; i<len; i++) sum += data[i];
+	return sum/len;
+}
+
+float get_std(std::unique_ptr<float[]> &data, size_t len) {
+	float sum=0;
+	float mean = get_mean(data, len);
+	for(size_t i=0; i<len; i++) sum += std::pow((data[i]-mean), 2);
+	return std::sqrt(sum/len);
 }
 
 
@@ -55,13 +82,37 @@ TEST_CASE("Helpers", "[core]") {
 		CHECK(!max_f32(1, 2));
 		CHECK(!max_f32(0.1, 0.2));
 		CHECK(!max_f32(0.01, 0.02));
+
+		CHECK(eql_f32(0.1, 0.1));
+		//CHECK(aeql_f32(0.0095, 0.1, 0.01));
+		CHECK(aeql_f32(0.1, 0.2, 0.5));
 	}
-#include <iostream>
 	SECTION("uniform kolmogorov smirnov test") {
 		std::unique_ptr<float[]> data = std::make_unique<float[]>(10);
 		float j = 0.1;
 		for(size_t i=0; i<10; i++, j+=0.1) { data[i] = j; }
 		CHECK(uniform_kolmogorov_smirnov_test(data, 10));
+	}
+
+	SECTION("cdf of normal distribution") {
+		CHECK(eql_f32(get_cdf_normal_dist(0.1), 0.53982784));
+		CHECK(eql_f32(get_cdf_normal_dist(0.2), 0.57925971));
+		CHECK(eql_f32(get_cdf_normal_dist(0.3), 0.61791142));
+		CHECK(eql_f32(get_cdf_normal_dist(0.4), 0.65542174));
+		CHECK(eql_f32(get_cdf_normal_dist(0.5), 0.69146246));
+	}
+
+	SECTION("mean") {
+		std::unique_ptr<float[]> data = std::make_unique<float[]>(10);
+		for(size_t i=0; i<10; i++) { data[i] = i; }
+		CHECK(eql_f32(get_mean(data, 10), 4.5));
+	}
+
+	SECTION("std") {
+		std::unique_ptr<float[]> data = std::make_unique<float[]>(10);
+		for(size_t i=0; i<10; i++) { data[i] = i; }
+		float a = get_std(data, 10);
+		CHECK(eql_f32(a, 2.872281323269));
 	}
 }
 
@@ -127,10 +178,16 @@ TEST_CASE("Tensor API", "[core]") {
 			}
 		}
 
+#include <iostream>
 		// static std::unique_ptr<float[]> f32_generate_box_muller_normal_distribution(uint32_t count, float up=1.f, float down=0.f, double seed=0) {
 		SECTION("Box-Muller Transform") {
 			SECTION("0-1") {
-				std::unique_ptr<float[]> a = Tensor<>::f32_generate_box_muller_normal_distribution(500);
+				std::unique_ptr<float[]> a = Tensor<>::f32_generate_box_muller_normal_distribution(5000);
+				std::cout << get_mean(a, 5000) << " " << get_std(a, 5000) << std::endl;	
+				//CHECK(aeql_f32(get_mean(a, 5000), 0, 0.5));
+				CHECK_THAT(get_mean(a, 5000), WithinAbsMatcher(0.f, 0.1));
+				//CHECK(aeql_f32(get_std(a, 5000), 1, 0.1));
+				CHECK_THAT(get_std(a, 5000), WithinAbsMatcher(1.f, 0.1));
 			}
 		}
 
