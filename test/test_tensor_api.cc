@@ -56,9 +56,11 @@ TEST_CASE("Helpers", "[core]") {
 		CHECK(!max_f32(0.1, 0.2));
 		CHECK(!max_f32(0.01, 0.02));
 	}
+#include <iostream>
 	SECTION("uniform kolmogorov smirnov test") {
 		std::unique_ptr<float[]> data = std::make_unique<float[]>(10);
-		for(float i, j=0.1; max_f32(1.1, i);i+=0.1, j++) { data[j] = i; }
+		float j = 0.1;
+		for(size_t i=0; i<10; i++, j+=0.1) { data[i] = j; }
 		CHECK(uniform_kolmogorov_smirnov_test(data, 10));
 	}
 }
@@ -101,13 +103,13 @@ TEST_CASE("Tensor API", "[core]") {
 			}
 			// TODO: Giving lower value crashes program
 			SECTION("-5 : -5") {
-				//std::unique_ptr<float[]> a = Tensor<>::f32_generate_uniform_distribution(500, 5.f, -5.f);
-				//CHECK(uniform_kolmogorov_smirnov_test(a, 500));
+				std::unique_ptr<float[]> a = Tensor<>::f32_generate_uniform_distribution(500, 5.f, -5.f);
+				CHECK(uniform_kolmogorov_smirnov_test(a, 500));
 			}
 			// TODO: modifying with epsilon makes it not uniform enough
 			SECTION("epsilon .5f") {
-				//std::unique_ptr<float[]> a = Tensor<>::f32_generate_uniform_distribution(500, 1.f, 0.f, 0, true, 0.5f);
-				//CHECK(!uniform_kolmogorov_smirnov_test(a, 500));
+				std::unique_ptr<float[]> a = Tensor<>::f32_generate_uniform_distribution(500, 1.f, 0.f, 0, true, 0.5f);
+				CHECK(!uniform_kolmogorov_smirnov_test(a, 500));
 			}
 		}
 		// static std::unique_ptr<float[]> f32_generate_box_muller_normal_distribution(uint32_t count, float up=1.f, float down=0.f, double seed=0) {
