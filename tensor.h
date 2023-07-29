@@ -294,10 +294,10 @@ class Tensor {
 			std::unique_ptr<float[]> data;
 			switch(dist) {
 				case UNIFORM:
-					ret = Tensor<>::f32_generate_uniform_distribution(ret.size(), up, down, seed);
+					data = Tensor<>::f32_generate_uniform_distribution(ret.size(), up, down, seed);
 					break;
 				case NORMAL: 
-					ret = Tensor<>::f32_generate_box_muller_normal_distribution(ret.size(), up, down, seed);
+					data = Tensor<>::f32_generate_box_muller_normal_distribution(ret.size(), up, down, seed);
 					break;
 			}
 
