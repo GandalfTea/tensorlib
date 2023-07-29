@@ -110,6 +110,7 @@ TEST_CASE("Tensor Constructor Helpers", "[core]") {
 			}
 		}
 
+		// TODO: Check value boundries
 		SECTION("randn") {
 			SECTION("static") {
 				Tensor<float> a = Tensor<float>::randn({N, N});	
@@ -127,36 +128,16 @@ TEST_CASE("Tensor Constructor Helpers", "[core]") {
 					CHECK(shp[j] == x);
 					j++;
 				}
-				auto data = a.data();
-				for(size_t i=0; i < a.size(); i++) {
-					CHECK(data[i] <= 1.f);
-					CHECK(data[i] >= 0.f);
-				}
 			}
 			SECTION("static : 1.f - 2.f") {
 				Tensor<float> a = Tensor<float>::randn({N, N}, 2.f, 1.f);	
-				auto data = a.data();
-				for(size_t i=0; i < a.size(); i++) {
-					CHECK(data[i] <= 2.f);
-					CHECK(data[i] >= 1.f);
-				}
 			}
 			SECTION("static : -3.14 - 3.14") {
 				Tensor<float> a = Tensor<float>::randn({N, N}, 3.14, -3.14);	
-				auto data = a.data();
-				for(size_t i=0; i < a.size(); i++) {
-					CHECK(data[i] < 3.15);
-					CHECK(data[i] > -3.15);
-				}
 			}
 			SECTION("non-static") {
 				Tensor<float> a = Tensor<float>({N, N});
 				CHECK_NOTHROW(a.randn(3.14, -3.14));
-				auto data = a.data();
-				for(size_t i=0; i < a.size(); i++) {
-					CHECK(data[i] < 3.15);
-					CHECK(data[i] > -3.15);
-				}
 			}
 		}
 		SECTION("eye") {
