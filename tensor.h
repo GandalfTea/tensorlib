@@ -460,18 +460,16 @@ class Tensor {
 			if(count % 2 != 0) count++; 
 			constexpr float epsilon = std::numeric_limits<float>::epsilon();
 			constexpr float two_pi = 2.0 * M_PI;
-			std::unique_ptr<float[]> u1, u2;
 			std::unique_ptr<float[]> ret = std::unique_ptr<float[]>(new float[count]);
-			u1 = Tensor<>::f32_generate_uniform_distribution(count/2, up, down, seed, true, epsilon);
-			u2 = Tensor<>::f32_generate_uniform_distribution(count/2, up, down, seed);
-			for(size_t i=0, j=0; i<count; i++, j+=2) {
+			auto u1 = Tensor<>::f32_generate_uniform_distribution(count/2, up, down, seed, true, epsilon);
+			auto u2 = Tensor<>::f32_generate_uniform_distribution(count/2, up, down, seed);
+			for(size_t i=0, j=0; i<count/2; i++, j+=2) {
 				auto mag = std::sqrt(-2.0 * std::log(u1[i]));
 				ret[j]   = mag * std::cos(two_pi * u2[i]);
 				ret[j+1] = mag * std::sin(two_pi * u2[i]);
 			}
 			return ret;
 		}
-
 
 	protected:
 
