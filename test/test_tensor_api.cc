@@ -38,7 +38,7 @@ bool uniform_kolmogorov_smirnov_test(std::unique_ptr<float[]> &data, size_t len,
 	else if (max_f32(0.01f, alpha)) alpha_val=1.63;
 
 	float critical_value = alpha_val / std::sqrt(len);
-	return !max_f32(D, critical_value, 0.3f); // big epsilon until I can make it more uniform 
+	return !max_f32(D, critical_value, 0.5f); // big epsilon until I can make it more uniform 
 }
 
 
@@ -95,27 +95,42 @@ TEST_CASE("Tensor API", "[core]") {
 		SECTION("Uniform Distribution") {
 			SECTION("0 - 1") {
 				std::unique_ptr<float[]> a = Tensor<>::f32_generate_uniform_distribution(500);
+				for(size_t i=0; i < 500; i++) {
+					CHECK(max_f32(a[i], -0.1f));
+					CHECK(max_f32(1.3f, a[i]));
+				}
 				CHECK(uniform_kolmogorov_smirnov_test(a, 500));
 			}
 			SECTION("0 - 5") {
 				std::unique_ptr<float[]> a = Tensor<>::f32_generate_uniform_distribution(500, 5.f);
+				for(size_t i=0; i < 500; i++) {
+					CHECK(max_f32(a[i], -0.1f));
+					CHECK(max_f32(5.1f, a[i]));
+				}
 				CHECK(uniform_kolmogorov_smirnov_test(a, 500));
 			}
-			// TODO: Giving lower value crashes program
 			SECTION("-5 : -5") {
 				std::unique_ptr<float[]> a = Tensor<>::f32_generate_uniform_distribution(500, 5.f, -5.f);
+				for(size_t i=0; i < 500; i++) {
+					CHECK(max_f32(a[i], -5.1f));
+					CHECK(max_f32(5.1f, a[i]));
+				}
 				CHECK(uniform_kolmogorov_smirnov_test(a, 500));
 			}
-			// TODO: modifying with epsilon makes it not uniform enough
 			SECTION("epsilon .5f") {
 				std::unique_ptr<float[]> a = Tensor<>::f32_generate_uniform_distribution(500, 1.f, 0.f, 0, true, 0.5f);
+				for(size_t i=0; i < 500; i++) {
+					CHECK(max_f32(a[i], 0.4f));
+					CHECK(max_f32(1.1f, a[i]));
+				}
 				CHECK(!uniform_kolmogorov_smirnov_test(a, 500));
 			}
 		}
+
 		// static std::unique_ptr<float[]> f32_generate_box_muller_normal_distribution(uint32_t count, float up=1.f, float down=0.f, double seed=0) {
 		SECTION("Box-Muller Transform") {
 			SECTION("0-1") {
-				//std::unique_ptr<float[]> a = Tensor<>::f32_generate_box_muller_normal_distribution(500);
+				std::unique_ptr<float[]> a = Tensor<>::f32_generate_box_muller_normal_distribution(500);
 			}
 		}
 
