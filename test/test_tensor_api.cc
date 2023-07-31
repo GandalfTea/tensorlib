@@ -55,6 +55,18 @@ float get_cdf_normal_dist(float x, float mean=0, float stdiv=1) {
 	return 0.5*(1+std::erf(arg));
 }
 
+bool normal_kolmogorov_smirnov_test(std::unique_ptr<float[] &data, size_t len, float alpha=KOLMOGROV_SMIRNOV_ALPHA>) {
+	float D{}, d_plus_max{}, d_min_max{}, norm_d{};
+	std::sort(&data[0], &data[len]);
+	for(size_t i=0; i<len; i++) {
+		float d_plus = (((float)i+1)/len)-data[i];
+		if(max_f32(d_plus, d_plus_max)) d_plus_max = d_plus;
+		float d_min = data[i]-((float)i/len);
+		if(max_f32(d_min, d_min_max)) d_min_max = d_min;
+		float norm = get_cdf_normal_dist(i);
+	}
+}
+
 float get_mean(std::unique_ptr<float[]> &data, size_t len) {
 	float sum=0.f;
 	for(size_t i=0; i<len; i++) sum += data[i];
@@ -70,7 +82,6 @@ float get_std(std::unique_ptr<float[]> &data, size_t len) {
 
 
 // Tests
-
 
 TEST_CASE("Helpers", "[core]") {
 	SECTION("float max()") {
@@ -178,12 +189,10 @@ TEST_CASE("Tensor API", "[core]") {
 			}
 		}
 
-#include <iostream>
 		// static std::unique_ptr<float[]> f32_generate_box_muller_normal_distribution(uint32_t count, float up=1.f, float down=0.f, double seed=0) {
 		SECTION("Box-Muller Transform") {
 			SECTION("0-1") {
 				std::unique_ptr<float[]> a = Tensor<>::f32_generate_box_muller_normal_distribution(5000);
-				std::cout << get_mean(a, 5000) << " " << get_std(a, 5000) << std::endl;	
 				//CHECK(aeql_f32(get_mean(a, 5000), 0, 0.5));
 				CHECK_THAT(get_mean(a, 5000), WithinAbsMatcher(0.f, 0.1));
 				//CHECK(aeql_f32(get_std(a, 5000), 1, 0.1));
