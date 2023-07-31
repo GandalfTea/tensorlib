@@ -112,6 +112,19 @@ TEST_CASE("Benchmarks") {
 		};
 	}	
 
+	SECTION("Random Number Generators") {
+		int N = 4096;
+		BENCHMARK("Uniform Dist 4096") {
+			return Tensor<>::f32_generate_uniform_distribution(N);
+		};
+		BENCHMARK("Uniform Dist 4096x4096") {
+			return Tensor<>::f32_generate_uniform_distribution(N*N);
+		};
+		BENCHMARK("Uniform Dist 4096x4096x4096") {
+			return Tensor<>::f32_generate_uniform_distribution(N*N*N);
+		};
+	}
+
 	SECTION("Movement OPs") {
 		int N = 4096;
 		std::unique_ptr<float[]> data = std::make_unique<float[]>(N*N);
