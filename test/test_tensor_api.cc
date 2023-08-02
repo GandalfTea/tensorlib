@@ -27,6 +27,7 @@ bool constexpr aeql_f32(float a, float b, float epsilon=EPSILON) {
 	return fabs(a-b) <= ( (fabs(a) < fabs(b) ? fabs(b) : fabs(a)) * epsilon);
 }
 
+#include <iostream>
 // alpha is allowed margin of error, alpha < .20
 bool uniform_kolmogorov_smirnov_test(std::unique_ptr<float[]> &data, size_t len, float alpha=KOLMOGOROV_SMIRNOV_ALPHA) {
 	float D{}, d_plus_max{}, d_min_max{};
@@ -55,6 +56,35 @@ float get_cdf_normal_dist(float x, float mean=0, float stdiv=1) {
 	return 0.5*(1+std::erf(arg));
 }
 
+bool normal_kolmogorov_smirnov_test(std::unique_ptr<float[]> &data, size_t len, float mean=0.f, float std=1.f, float alpha=KOLMOGOROV_SMIRNOV_ALPHA) {
+	float D{};
+	for(size_t i=0; i<len; i++) { data[i] = std::abs(data[i]); }
+	std::sort(&data[0], &data[len]);
+	float f = mean-4*std;
+	float skew = 3*(mean - data[std::floor(len/2)])/std;
+	for(size_t i=1; i<=len; i++) {
+		//float d_pls = (((float)i+1)/len)-data[i-1];
+		//float d_min = data[i-1]-((float)i/len);
+		//float max = max_f32(d_pls, d_min) ? d_pls : d_min;
+		float max = ((float)i)/len;
+		float ncdf = get_cdf_normal_dist(f, mean, std);
+		float dif = std::abs(max-ncdf);
+		D = max_f32(dif, D) ? dif : D;
+		std::cout << max << " - " << ncdf << " max: " << D << std::endl;
+		f += (mean+8*std)/len;
+	}
+	float alpha_val;
+	if(eql_f32(0.20f, alpha)) alpha_val=1.07;
+	else if (eql_f32(0.10f, alpha)) alpha_val=1.22;
+	else if (eql_f32(0.05f, alpha)) alpha_val=1.36;
+	else if (eql_f32(0.02f, alpha)) alpha_val=1.52;
+	else if (eql_f32(0.01f, alpha)) alpha_val=1.63;
+	else alpha_val=1.63;
+	float critical_value = alpha_val / std::sqrt(len);
+	//std::cout << critical_value << " - " << D << std::endl; 
+	return !max_f32(D, critical_value, 0.9f);
+}
+
 float get_mean(std::unique_ptr<float[]> &data, size_t len) {
 	float sum=0.f;
 	for(size_t i=0; i<len; i++) sum += data[i];
@@ -68,9 +98,41 @@ float get_std(std::unique_ptr<float[]> &data, size_t len) {
 	return std::sqrt(sum/len);
 }
 
+bool dagostino_skewness_test(std::unique_ptr<float[]> &data, size_t len) {
+	double mean = 0;
+	for(size_t i=0; i<len; i++) mean += data[i] / len;
+	double g1_top, g1_btm, g2_top, g2_btm, g1, g2;
+	double Y, b2_top, b2_btm, b2, w2, std, alpha, Z;
+	for(size_t i=0; i<len; i++) {
+		double s = data[i]-mean;
+		g1_top += std::pow(s, 3) / len;
+		g1_btm += std::pow(s, 2) / len;
+		g2_top += std::pow(s, 4) / len;
+	}
+	g1_btm = std::pow(g1_btm, 1.5);
+	g2_btm = std::pow(g1_btm, 2);
+	g1 = g1_top / g1_btm;
+	g2 = g2_top / g2_btm - 3;
+	Y = g1 * (std::pow(((len+1)*(len+3)) / (6*(len-2)), 0.5));
+	b2_top = 3*(pow(len,2)+27*len-70)*(len+1)*(len+3); 
+	b2_btm = (len-2)*(len+5)*(len+7)*(len+9);
+	b2 = b2_top/b2_btm;
+	w2 = pow(2*(b2-1), 0.5);
+	std = 1/std::pow(std::log(std::pow(w2, 0.5)), 0.5);
+	alpha = std::pow(2/(w2-1), 0.5);
+	Z = std*std::log(Y/alpha + std::pow(std::pow(Y/alpha, 2)+1, 0.5));
+	if(max_f32(Z, -0.72991, 0.001) && max_f32(1.21315, Z, 0.001)) return true; // 95% confidence 
+	else return false;
+}
+
+bool dagostino_kurtosis_test(std::shared_ptr<float[]> &data, size_t len) {
+	float mean = 0;
+	for(size_t i=0; i<len; i++) mean += data[i] / len;
+	return false;
+}
+
 
 // Tests
-
 
 TEST_CASE("Helpers", "[core]") {
 	SECTION("float max()") {
@@ -178,16 +240,14 @@ TEST_CASE("Tensor API", "[core]") {
 			}
 		}
 
-#include <iostream>
 		// static std::unique_ptr<float[]> f32_generate_box_muller_normal_distribution(uint32_t count, float up=1.f, float down=0.f, double seed=0) {
 		SECTION("Box-Muller Transform") {
 			SECTION("0-1") {
 				std::unique_ptr<float[]> a = Tensor<>::f32_generate_box_muller_normal_distribution(5000);
-				std::cout << get_mean(a, 5000) << " " << get_std(a, 5000) << std::endl;	
-				//CHECK(aeql_f32(get_mean(a, 5000), 0, 0.5));
 				CHECK_THAT(get_mean(a, 5000), WithinAbsMatcher(0.f, 0.1));
-				//CHECK(aeql_f32(get_std(a, 5000), 1, 0.1));
 				CHECK_THAT(get_std(a, 5000), WithinAbsMatcher(1.f, 0.1));
+				//CHECK(normal_kolmogorov_smirnov_test(a, 5000, get_mean(a, 5000), get_std(a, 5000))); 
+				std::cout << dagostino_skewness_test(a, 5000) << std::endl;
 			}
 		}
 
