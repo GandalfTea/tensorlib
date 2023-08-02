@@ -27,6 +27,7 @@ bool constexpr aeql_f32(float a, float b, float epsilon=EPSILON) {
 	return fabs(a-b) <= ( (fabs(a) < fabs(b) ? fabs(b) : fabs(a)) * epsilon);
 }
 
+#include <iostream>
 // alpha is allowed margin of error, alpha < .20
 bool uniform_kolmogorov_smirnov_test(std::unique_ptr<float[]> &data, size_t len, float alpha=KOLMOGOROV_SMIRNOV_ALPHA) {
 	float D{}, d_plus_max{}, d_min_max{};
@@ -55,16 +56,33 @@ float get_cdf_normal_dist(float x, float mean=0, float stdiv=1) {
 	return 0.5*(1+std::erf(arg));
 }
 
-bool normal_kolmogorov_smirnov_test(std::unique_ptr<float[] &data, size_t len, float alpha=KOLMOGROV_SMIRNOV_ALPHA>) {
-	float D{}, d_plus_max{}, d_min_max{}, norm_d{};
+bool normal_kolmogorov_smirnov_test(std::unique_ptr<float[]> &data, size_t len, float mean=0.f, float std=1.f, float alpha=KOLMOGOROV_SMIRNOV_ALPHA) {
+	float D{};
+	for(size_t i=0; i<len; i++) { data[i] = std::abs(data[i]); }
 	std::sort(&data[0], &data[len]);
-	for(size_t i=0; i<len; i++) {
-		float d_plus = (((float)i+1)/len)-data[i];
-		if(max_f32(d_plus, d_plus_max)) d_plus_max = d_plus;
-		float d_min = data[i]-((float)i/len);
-		if(max_f32(d_min, d_min_max)) d_min_max = d_min;
-		float norm = get_cdf_normal_dist(i);
+	float f = mean-4*std;
+	float skew = 3*(mean - data[std::floor(len/2)])/std;
+	for(size_t i=1; i<=len; i++) {
+		//float d_pls = (((float)i+1)/len)-data[i-1];
+		//float d_min = data[i-1]-((float)i/len);
+		//float max = max_f32(d_pls, d_min) ? d_pls : d_min;
+		float max = ((float)i)/len;
+		float ncdf = get_cdf_normal_dist(f, mean, std);
+		float dif = std::abs(max-ncdf);
+		D = max_f32(dif, D) ? dif : D;
+		std::cout << max << " - " << ncdf << " max: " << D << std::endl;
+		f += (mean+8*std)/len;
 	}
+	float alpha_val;
+	if(eql_f32(0.20f, alpha)) alpha_val=1.07;
+	else if (eql_f32(0.10f, alpha)) alpha_val=1.22;
+	else if (eql_f32(0.05f, alpha)) alpha_val=1.36;
+	else if (eql_f32(0.02f, alpha)) alpha_val=1.52;
+	else if (eql_f32(0.01f, alpha)) alpha_val=1.63;
+	else alpha_val=1.63;
+	float critical_value = alpha_val / std::sqrt(len);
+	//std::cout << critical_value << " - " << D << std::endl; 
+	return !max_f32(D, critical_value, 0.9f);
 }
 
 float get_mean(std::unique_ptr<float[]> &data, size_t len) {
@@ -193,10 +211,9 @@ TEST_CASE("Tensor API", "[core]") {
 		SECTION("Box-Muller Transform") {
 			SECTION("0-1") {
 				std::unique_ptr<float[]> a = Tensor<>::f32_generate_box_muller_normal_distribution(5000);
-				//CHECK(aeql_f32(get_mean(a, 5000), 0, 0.5));
 				CHECK_THAT(get_mean(a, 5000), WithinAbsMatcher(0.f, 0.1));
-				//CHECK(aeql_f32(get_std(a, 5000), 1, 0.1));
 				CHECK_THAT(get_std(a, 5000), WithinAbsMatcher(1.f, 0.1));
+				CHECK(normal_kolmogorov_smirnov_test(a, 5000, get_mean(a, 5000), get_std(a, 5000))); 
 			}
 		}
 
