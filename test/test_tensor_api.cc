@@ -248,6 +248,15 @@ TEST_CASE("Tensor API", "[core]") {
 				CHECK_THAT(get_std(a, 5000), WithinAbsMatcher(1.f, 0.1));
 				//CHECK(normal_kolmogorov_smirnov_test(a, 5000, get_mean(a, 5000), get_std(a, 5000))); 
 				std::cout << dagostino_skewness_test(a, 5000) << std::endl;
+				SECTION("D'agostino skewness") {
+					float res = 0;
+					for(size_t i=0; i < 100; i++) {
+						std::unique_ptr<float[]> a = Tensor<>::f32_generate_box_muller_normal_distribution(5000);
+						res += dagostino_skewness_test(a, 5000);
+					}
+					res /= 100;
+					CHECK_THAT(res, WithinAbsMatcher(1.f,0.5));
+				}
 			}
 		}
 
