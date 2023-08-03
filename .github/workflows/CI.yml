@@ -62,7 +62,7 @@ jobs:
     - name: Run
       run: ./a.out
 
-  test_tensor_api:
+  test_tensor_distributions:
     name: Statistical randn() tests 
     runs-on: ubuntu-latest
     timeout-minutes: 10
