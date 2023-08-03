@@ -70,7 +70,6 @@ bool normal_kolmogorov_smirnov_test(std::unique_ptr<float[]> &data, size_t len, 
 		float ncdf = get_cdf_normal_dist(f, mean, std);
 		float dif = std::abs(max-ncdf);
 		D = max_f32(dif, D) ? dif : D;
-		std::cout << max << " - " << ncdf << " max: " << D << std::endl;
 		f += (mean+8*std)/len;
 	}
 	float alpha_val;
@@ -81,7 +80,6 @@ bool normal_kolmogorov_smirnov_test(std::unique_ptr<float[]> &data, size_t len, 
 	else if (eql_f32(0.01f, alpha)) alpha_val=1.63;
 	else alpha_val=1.63;
 	float critical_value = alpha_val / std::sqrt(len);
-	//std::cout << critical_value << " - " << D << std::endl; 
 	return !max_f32(D, critical_value, 0.9f);
 }
 
@@ -101,8 +99,7 @@ float get_std(std::unique_ptr<float[]> &data, size_t len) {
 bool dagostino_skewness_test(std::unique_ptr<float[]> &data, size_t len) {
 	double mean = 0;
 	for(size_t i=0; i<len; i++) mean += data[i] / len;
-	double g1_top, g1_btm, g2_top, g2_btm, g1, g2;
-	double Y, b2_top, b2_btm, b2, w2, std, alpha, Z;
+	double g1_top, g1_btm, g2_top, g2_btm, g1, g2, Y, b2_top, b2_btm, b2, w2, std, alpha, Z;
 	for(size_t i=0; i<len; i++) {
 		double s = data[i]-mean;
 		g1_top += std::pow(s, 3) / len;
@@ -125,10 +122,31 @@ bool dagostino_skewness_test(std::unique_ptr<float[]> &data, size_t len) {
 	else return false;
 }
 
-bool dagostino_kurtosis_test(std::shared_ptr<float[]> &data, size_t len) {
-	float mean = 0;
+bool dagostino_kurtosis_test(std::unique_ptr<float[]> &data, size_t len) {
+	double mean = 0;
 	for(size_t i=0; i<len; i++) mean += data[i] / len;
-	return false;
+	double krt_top=0, krt_btm=0, krt=0, Ekrt=0, Var_krt=0, x=0, B_first=0, B_secnd=0, B=0, A=0, pos=0, Z=0;
+	for(size_t i=0; i<len; i++) {
+		double s = data[i]-mean;
+		krt_top += std::pow(s, 4) / len;
+		krt_btm += std::pow(s, 2) / len;
+	}
+	krt_btm = std::pow(krt_btm, 2);
+	krt = krt_top/krt_btm;
+	Ekrt = (3.f*(len-1)) / (len+1);
+	Var_krt = (24.f*len*(len+2)*(len-3))/(std::pow(len+1, 2)*(len+3)*(len+5));
+	x = (krt - Ekrt) / std::pow(Var_krt, 0.5);
+	B_first = (6.f*len*len-5.f*len+2.f) / ((len+7.f)*(len+9.f)); 
+	B_secnd =	(6.f*(len+3.f)*(len+5.f)) / (len*(len-2.f)*(len-3.f)); 
+	B_secnd = std::pow(B_secnd, 0.5);
+	B = B_first*B_secnd;
+	A = 6 + (8/B) * ((2/B)+std::pow(1+4/std::pow(B, 2), 0.5));
+	pos = (1-2/A);
+	pos = pos / (1.f+(x*std::pow(2.f/(A-4), 0.5)));
+	pos = std::pow(pos, 1.f/3);
+	Z = (1.f-(2.f/(9*A))-pos) / std::pow(2.f/(9.f*A), 0.5);;
+	if(max_f32(Z, -0.72991, 0.001) && max_f32(1.21315, Z, 0.001)) return true; // 95% confidence 
+	else return false;
 }
 
 
@@ -247,7 +265,6 @@ TEST_CASE("Tensor API", "[core]") {
 				CHECK_THAT(get_mean(a, 5000), WithinAbsMatcher(0.f, 0.1));
 				CHECK_THAT(get_std(a, 5000), WithinAbsMatcher(1.f, 0.1));
 				//CHECK(normal_kolmogorov_smirnov_test(a, 5000, get_mean(a, 5000), get_std(a, 5000))); 
-				std::cout << dagostino_skewness_test(a, 5000) << std::endl;
 				SECTION("D'agostino skewness") {
 					float res = 0;
 					for(size_t i=0; i < 100; i++) {
@@ -257,11 +274,28 @@ TEST_CASE("Tensor API", "[core]") {
 					res /= 100;
 					CHECK_THAT(res, WithinAbsMatcher(1.f,0.5));
 				}
+				SECTION("D'agostino kurtosis") {
+					float res = 0;
+					for(size_t i=0; i < 100; i++) {
+						std::unique_ptr<float[]> a = Tensor<>::f32_generate_box_muller_normal_distribution(5000);
+						res += dagostino_kurtosis_test(a, 5000);
+					}
+					res /= 100;
+					CHECK_THAT(res, WithinAbsMatcher(1.f,0.5));
+				}
+				SECTION("Both skewness and kurtosis") {
+					float res = 0;
+					for(size_t i=0; i < 100; i++) {
+						std::unique_ptr<float[]> a = Tensor<>::f32_generate_box_muller_normal_distribution(5000);
+						res += dagostino_kurtosis_test(a, 5000);
+						res += dagostino_skewness_test(a, 5000);
+					}
+					res /= 200;
+					CHECK_THAT(res, WithinAbsMatcher(1.f,0.5));
+				}
 			}
 		}
-
 	}
-
 }
 
 TEST_CASE("Tensor OPs", "[core]") {
