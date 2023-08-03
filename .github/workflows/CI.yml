@@ -63,6 +63,21 @@ jobs:
     - name: Run
       run: ./a.out
 
+	test_randn_stats:
+		name: Statistical randn() tests
+		runs-on: ubuntu-latest
+		timeout-minutes: 10
+		
+		steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+		- name: Install GSL
+			run: sudo apt-get install libgsl-dev 
+    - name: Compile Test
+      run: g++ test/test_tensor_random_distributions.cc -I ./ -lgsl 
+    - name: Run
+      run: ./a.out
+
   element_vs_pytorch:
     name : Element Indexing VS PyTorch
     runs-on: ubuntu-latest
