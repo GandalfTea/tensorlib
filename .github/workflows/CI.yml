@@ -1,4 +1,3 @@
-
 name: CI
 
 on:
@@ -68,11 +67,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 		
-		steps:
+    steps:
     - name: Checkout Code
       uses: actions/checkout@v3
-		- name: Install GSL
-			run: sudo apt-get install libgsl-dev 
+    - name: Install GSL
+      run: sudo apt-get install libgsl-dev 
     - name: Compile Test
       run: g++ test/test_tensor_random_distributions.cc -I ./ -lgsl 
     - name: Run
