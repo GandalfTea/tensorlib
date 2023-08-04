@@ -5,6 +5,8 @@
 #include "catch.hpp"
 #include "tensor.h"
 
+#include <gsl/gsl_cdf.h>
+
 #define N 2048
 #define EPSILON 0.001
 #define KOLMOGOROV_SMIRNOV_ALPHA 0.001
@@ -95,7 +97,7 @@ float get_std(std::unique_ptr<float[]> &data, size_t len) {
 	return std::sqrt(sum/len);
 }
 
-bool dagostino_skewness_test(std::unique_ptr<float[]> &data, size_t len) {
+bool dagostino_skewness_test(std::unique_ptr<float[]> &data, size_t len, double* ret=nullptr) {
 	double mean = 0;
 	for(size_t i=0; i<len; i++) mean += data[i] / len;
 	double g1_top, g1_btm, g2_top, g2_btm, g1, g2, Y, b2_top, b2_btm, b2, w2, std, alpha, Z;
@@ -117,11 +119,11 @@ bool dagostino_skewness_test(std::unique_ptr<float[]> &data, size_t len) {
 	std = 1/std::pow(std::log(std::pow(w2, 0.5)), 0.5);
 	alpha = std::pow(2/(w2-1), 0.5);
 	Z = std*std::log(Y/alpha + std::pow(std::pow(Y/alpha, 2)+1, 0.5));
-	if(max_f32(Z, -0.72991, 0.001) && max_f32(1.21315, Z, 0.001)) return true; // 95% confidence 
-	else return false;
+	if(ret != nullptr) *ret = Z;
+	return max_f32(Z, -0.72991, 0.001) && max_f32(1.21315, Z, 0.001); // 95% confidence 
 }
 
-bool dagostino_kurtosis_test(std::unique_ptr<float[]> &data, size_t len) {
+bool dagostino_kurtosis_test(std::unique_ptr<float[]> &data, size_t len, double* ret=nullptr) {
 	double mean = 0;
 	for(size_t i=0; i<len; i++) mean += data[i] / len;
 	double krt_top=0, krt_btm=0, krt=0, Ekrt=0, Var_krt=0, x=0, B_first=0, B_secnd=0, B=0, A=0, pos=0, Z=0;
@@ -144,10 +146,19 @@ bool dagostino_kurtosis_test(std::unique_ptr<float[]> &data, size_t len) {
 	pos = pos / (1.f+(x*std::pow(2.f/(A-4), 0.5)));
 	pos = std::pow(pos, 1.f/3);
 	Z = (1.f-(2.f/(9*A))-pos) / std::pow(2.f/(9.f*A), 0.5);;
-	if(max_f32(Z, -0.72991, 0.001) && max_f32(1.21315, Z, 0.001)) return true; // 95% confidence 
-	else return false;
+	if(ret != nullptr) *ret = Z;
+	return max_f32(Z, -0.72991, 0.001) && max_f32(1.21315, Z, 0.001); // 95% confidence 
 }
 
+bool dagostino_omnibus(std::unique_ptr<float[]> &data, size_t len, double* ret=nullptr) {
+	double Z1, Z2, p=0, pval=0;
+	dagostino_skewness_test(data, len, &Z1);
+	dagostino_kurtosis_test(data, len, &Z2);
+	p = gsl_cdf_chisq_P(std::pow(Z1, 2) + std::pow(Z2, 2), (double)2.f);
+	pval = 1-p;
+	if(ret!=nullptr) *ret=pval;
+	return max_f32(pval, 0.3f);
+}
 
 TEST_CASE("Helpers", "[core]") {
 	SECTION("float max()") {
@@ -238,30 +249,59 @@ TEST_CASE("Generators", "stats") {
 				//CHECK(normal_kolmogorov_smirnov_test(a, 5000, get_mean(a, 5000), get_std(a, 5000))); 
 				SECTION("D'agostino skewness") {
 					float res = 0;
+					double val, mean=0, max=0, min=1;
 					for(size_t i=0; i < 100; i++) {
 						std::unique_ptr<float[]> a = Tensor<>::f32_generate_box_muller_normal_distribution(5000);
-						res += dagostino_skewness_test(a, 5000);
+						res += dagostino_skewness_test(a, 5000, &val);
+						mean += val/100;	
+						if(max_f32(val, max)) max=val;
+						if(max_f32(min, val)) min=val;
 					}
 					res /= 100;
+					std::cout << "\n\nD'gostino Skewness - mean: " << mean << " min: " << min << " max: " << max; 
 					CHECK_THAT(res, WithinAbsMatcher(1.f,0.5));
 				}
 				SECTION("D'agostino kurtosis") {
 					float res = 0;
+					double val, mean=0, max=0, min=1;
 					for(size_t i=0; i < 100; i++) {
 						std::unique_ptr<float[]> a = Tensor<>::f32_generate_box_muller_normal_distribution(5000);
-						res += dagostino_kurtosis_test(a, 5000);
+						res += dagostino_kurtosis_test(a, 5000, &val);
+						mean += val/100;	
+						if(max_f32(val, max)) max=val;
+						if(max_f32(min, val)) min=val;
 					}
 					res /= 100;
+					std::cout << "\n\nD'gostino Kurtosis - mean: " << mean << " min: " << min << " max: " << max; 
 					CHECK_THAT(res, WithinAbsMatcher(1.f,0.5));
 				}
 				SECTION("Both skewness and kurtosis") {
 					float res = 0;
+					double val1, val2, mean=0, max=0, min=1;
 					for(size_t i=0; i < 100; i++) {
 						std::unique_ptr<float[]> a = Tensor<>::f32_generate_box_muller_normal_distribution(5000);
-						res += dagostino_kurtosis_test(a, 5000);
-						res += dagostino_skewness_test(a, 5000);
+						res += dagostino_kurtosis_test(a, 5000, &val1);
+						res += dagostino_skewness_test(a, 5000, &val2);
+						mean += (val1+val2)/200;	
+						if(max_f32((val1+val2)/2, max)) max=(val1+val2)/2;
+						if(max_f32(min, (val1+val2)/2)) min=(val1+val2)/2;
 					}
 					res /= 200;
+					std::cout << "\n\nD'gostino S + K - mean: " << mean << " min: " << min << " max: " << max; 
+					CHECK_THAT(res, WithinAbsMatcher(1.f,0.5));
+				}
+				SECTION("Omnibus") {
+					float res = 0;
+					double val, mean=0, max=0, min=1;
+					for(size_t i=0; i < 100; i++) {
+						std::unique_ptr<float[]> a = Tensor<>::f32_generate_box_muller_normal_distribution(5000);
+						res += dagostino_omnibus(a, 5000, &val);
+						mean += val/100;	
+						if(max_f32(val, max)) max=val;
+						if(max_f32(min, val)) min=val;
+					}
+					res /= 100;
+					std::cout << "\n\nD'gostino Omnibus - mean: " << mean << " min: " << min << " max: " << max << " status: " << (max_f32(mean, 0.7) ? "pass" : "fail") << std::endl; 
 					CHECK_THAT(res, WithinAbsMatcher(1.f,0.5));
 				}
 			}
