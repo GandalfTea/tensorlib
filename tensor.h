@@ -153,7 +153,8 @@ typedef enum {
 
 typedef enum {
 	UNIFORM, 
-	NORMAL, // used box-muller transform for mean 0, variance 1
+	NORMAL, 
+	CHI_SQUARED,
 } Distribution;
 
 typedef enum {
@@ -298,6 +299,8 @@ class Tensor {
 					break;
 				case NORMAL: 
 					data = Tensor<>::f32_generate_box_muller_normal_distribution(ret.size(), up, down, seed);
+				case CHI_SQUARED:
+					data = Tensor<>::f32_generate_chi_squared_distribution(ret.size(), up, down, seed);
 					break;
 			}
 
@@ -455,6 +458,18 @@ class Tensor {
 			return ret;
 		}
 
+		static std::unique_ptr<float[]> f32_generate_chi_squared_distribution(uint32_t count, float up=1.f, float down=0.f, double seed=0) {
+ 			static std::mt19937 rng(std::random_device{}());
+			if(seed!=0) rng.seed(seed);
+			static std::chi_squared_distribution<float> dist(2);
+			std::unique_ptr<float[]> ret = std::unique_ptr<float[]>(new float[count]);
+			for(size_t i=0; i<count; i++) { 
+				float n = dist(rng);
+				if(n >= down && n <= up) ret[i] = n;  
+			}
+			return ret;
+		}
+
 		// NOTE: If count is odd, it adds an extra element
 		static std::unique_ptr<float[]> f32_generate_box_muller_normal_distribution(uint32_t count, float up=1.f, float down=0.f, double seed=0) {
 			if(count % 2 != 0) count++; 
@@ -465,8 +480,8 @@ class Tensor {
 			auto u2 = Tensor<>::f32_generate_uniform_distribution(count/2, up, down, seed);
 			for(size_t i=0, j=0; i<count/2; i++, j+=2) {
 				auto mag = std::sqrt(-2.0 * std::log(u1[i]));
-				ret[j]   = mag * std::cos(two_pi * u2[i]);
-				ret[j+1] = mag * std::sin(two_pi * u2[i]);
+				ret[j]   = mag * std::sin(two_pi * u2[i]);
+				ret[j+1] = mag * std::cos(two_pi * u2[i]);
 			}
 			return ret;
 		}
