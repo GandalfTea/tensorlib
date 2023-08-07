@@ -303,7 +303,6 @@ class Tensor {
 					data = Tensor<>::f32_generate_chi_squared_distribution(ret.size(), up, down, seed);
 					break;
 			}
-
 			ret.set_data(data, ret.size());
 			return ret;
 		}
@@ -331,7 +330,18 @@ class Tensor {
 
 		// Move semantics
 		
-		static void like(Tensor rhs) {}
+		// Returns a virtual tensor of same shape and type as rhs.
+		// > auto b = Tensor<>::like(a).randn(); 
+		// > auto b = Tensor<>::like(a).fill(0);
+		static Tensor<T> like(Tensor<T> rhs) {
+			if(rhs.beye || !rhs.is_initialized || !rhs.bresolved) throw std::runtime_error("Invalid Tensor Argument in Tensor::like."	);
+			std::unique_ptr<uint32_t[]> nshp = std::unique_ptr<uint32_t[]>(new uint32_t[rhs.ndim()]);
+			std::shared_ptr<uint32_t[]> shp = rhs.view();
+			for(size_t i=0; i<rhs.ndim(); i++) nshp[i] = shp[i];
+			return Tensor<T>(nshp);
+		}
+
+		// Returns a tensor of same shape and a pointer to the rhs data.
 		void operator=(Tensor<T>& rhs) {}
 
 		// Lambda OPs
