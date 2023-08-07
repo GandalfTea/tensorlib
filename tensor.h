@@ -330,10 +330,11 @@ class Tensor {
 
 		// Move semantics
 		
-		// Returns a virtual tensor of same shape and type as rhs.
+		// Shallow copy
+		// Returns a virtual tensor of same shape and type as rhs, no data.
 		// > auto b = Tensor<>::like(a).randn(); 
 		// > auto b = Tensor<>::like(a).fill(0);
-		static Tensor<T> like(Tensor<T> rhs) {
+		static Tensor<T> like(Tensor<T> &rhs) {
 			if(rhs.beye || !rhs.is_initialized || !rhs.bresolved) throw std::runtime_error("Invalid Tensor Argument in Tensor::like."	);
 			std::unique_ptr<uint32_t[]> nshp = std::unique_ptr<uint32_t[]>(new uint32_t[rhs.ndim()]);
 			std::shared_ptr<uint32_t[]> shp = rhs.view();
@@ -342,10 +343,12 @@ class Tensor {
 		}
 
 		// Returns a tensor of same shape and a pointer to the rhs data.
-		void operator=(Tensor<T>& rhs) {}
+		void operator=(Tensor<T> &rhs) {}
 
-		// Lambda OPs
-		void exec() {}
+		// Apply arg function to each element in storage
+		void exec(void (*f)(T)) {
+			for(size_t i=0; i<this->numel(); i++) this->storage[i] = f(this->storage[i]);
+		}
 
 
 		// TODO: Move no data 
