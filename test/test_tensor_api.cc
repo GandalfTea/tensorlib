@@ -51,6 +51,26 @@ TEST_CASE("Tensor API", "[core]") {
 		}
 	}
 
+	SECTION("Copy Constructors and OPs") {
+		SECTION("Shallow copy with ::like()") {
+			std::unique_ptr<float[]> data = std::unique_ptr<float[]>(new float[N*N]());
+			Tensor<float> a(data, N*N, {N,N});
+			Tensor<float> b = Tensor<>::like(a);
+			CHECK(!b.is_initialized);
+			for(size_t i=0; i<b.ndim(); i++) CHECK(b.view()[i] == N);
+		}	
+		// TODO: Check for special tensors, also check all metadata
+		SECTION("Hard copy with operator=") {
+			std::unique_ptr<float[]> data = std::unique_ptr<float[]>(new float[N*N]());
+			Tensor<float> a(data, N*N, {N,N});
+			Tensor<float> b = a; 
+			CHECK(b.is_initialized);
+			for(size_t i=0; i<b.ndim(); i++) CHECK(b.view()[i] == N);
+			auto nd = b.data();
+			for(size_t i=0; i<b.size(); i++) CHECK(nd[i] == 0);
+		}
+	}
+
 	SECTION("Random Number Generators") {
 		SECTION("Uniform Distribution") {
 			SECTION("0 - 1") {
