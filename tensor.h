@@ -336,9 +336,11 @@ class Tensor {
 		// > auto b = Tensor<>::like(a).fill(0);
 		static Tensor<T> like(Tensor<T> &rhs) {
 			if(rhs.beye || !rhs.is_initialized || !rhs.bresolved) throw std::runtime_error("Invalid Tensor Argument in Tensor::like."	);
-			std::unique_ptr<uint32_t[]> nshp = std::unique_ptr<uint32_t[]>(new uint32_t[rhs.ndim()]);
+			sized_array<uint32_t> nshp;
+			nshp.ptr = std::unique_ptr<uint32_t[]>(new uint32_t[rhs.ndim()]);
+			nshp.size = rhs.ndim();
 			std::shared_ptr<uint32_t[]> shp = rhs.view();
-			for(size_t i=0; i<rhs.ndim(); i++) nshp[i] = shp[i];
+			for(size_t i=0; i<rhs.ndim(); i++) nshp.ptr[i] = shp[i];
 			return Tensor<T>(nshp);
 		}
 
@@ -423,6 +425,7 @@ class Tensor {
 		std::shared_ptr<T[]> data() { return this->storage; }
 		uint32_t ndim() { return this->shape->ndim(); }
 		uint64_t size() { return this->shape->numel(); }
+		uint64_t numel() { return this->shape->numel(); }
 
 		T item() {
 			if(this->size() == 1) {
@@ -452,6 +455,8 @@ class Tensor {
 			std::shared_ptr<uint32_t[]> ret = this->shape->strides;
 			return ret;
 		}
+
+
 
 		// Random number generators
 		static std::unique_ptr<float[]> f32_generate_uniform_distribution(uint32_t count, float up=1.f, float down=0.f, double seed=0, 
