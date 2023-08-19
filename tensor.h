@@ -80,15 +80,31 @@ struct View {
 
 	// No changes are made if movement OPs fail.
 	
-	// TODO: Allow -1 for auto dims
-	op_ret reshape(std::shared_ptr<uint32_t[]> &argview, size_t &dim) {
+	// NOTE: Allows for one inferred dim
+	op_ret reshape(std::shared_ptr<int32_t[]> &argview, size_t &dim) {
 		if(dim >= TENSOR_MAX_DIM) return GLOBAL_LIMIT_EXCEDED;
-		std::unique_ptr<uint32_t[]> ptr = std::unique_ptr<uint32_t[]>(new uint32_t[dim]);
 		uint64_t acc = 1;
+		bool b_infer = false;
+		size_t infer_idx = 0;
+		std::unique_ptr<uint32_t[]> ptr = std::unique_ptr<uint32_t[]>(new uint32_t[dim]);
 		for(size_t i=0; i < dim; i++) { 
-			if(argview[i] <= 0) return INVALID_ARGUMENTS;
+			if(argview[i] <= 0) {
+				if(argview[i] == -1) { 
+					if(b_infer) return INVALID_ARGUMENTS;
+					b_infer = true;
+					infer_idx = i;
+					ptr[i]=0;
+					continue;
+				}
+				else return INVALID_ARGUMENTS;
+			}
 			ptr[i] = argview[i];
 			acc *= argview[i]; 
+		}
+		if(b_infer) { 
+			uint32_t inf = dim/acc;
+			ptr[infer_idx] = inf;
+			acc *= inf; 
 		}
 		if(acc != this->elements) return INVALID_ARGUMENTS;
 		this->view = std::move(ptr);
