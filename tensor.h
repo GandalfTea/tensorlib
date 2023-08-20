@@ -39,6 +39,9 @@ typedef enum {
 	RESHAPE,
 	PERMUTE,
 	EXPAND,
+	SHRINK,
+	FLIP,
+	PAD
 } MovementOPs;
 
 struct View {
@@ -102,7 +105,7 @@ struct View {
 			acc *= argview[i]; 
 		}
 		if(b_infer) { 
-			uint32_t inf = dim/acc;
+			uint32_t inf = this->elements/acc;
 			ptr[infer_idx] = inf;
 			acc *= inf; 
 		}
@@ -205,13 +208,8 @@ class Tensor {
 			: shape(std::make_unique<View>(View(shp))), device(device) {}
 
 		Tensor(sized_array<uint32_t> shp, Device device=CPU)
-			: device(device) 
-		{
-				uint64_t numel=1;
-				for(size_t i=0; i<shp.size; i++) numel *= shp.ptr[i];
-				this->shape = std::make_unique<View>(View({numel}));
-				this->shape->reshape(shp.ptr, shp.size);
-		}
+			: device(device), shape(std::make_unique<View>(View(shp.ptr, shp.size))) {}
+
 
 		// Data init
 
@@ -219,38 +217,27 @@ class Tensor {
 			: storage(std::move(arr)), shape(std::make_unique<View>(View(shape))),
 				device(device), is_initialized(true), bresolved(true)
 		{
-			if(size != this->shape->numel()) throw std::runtime_error("Shape does not match data.");
+			if(size != this->shape->numel()) throw std::length_error("Shape does not match data.");
 		};
 
 		Tensor(std::initializer_list<T> arr, std::initializer_list<uint32_t> shape, Device device=CPU, bool is_fill=false)
 			: shape(std::make_unique<View>(View(shape))), device(device), is_initialized(true), bresolved(true)
 		{
-			if(!is_fill) if(arr.size() != this->shape->numel()) throw std::runtime_error("Shape does not match data.");
+			if(!is_fill && arr.size() != this->shape->numel()) throw std::length_error("Shape does not match data.");
 			std::unique_ptr<T[]> narr = std::unique_ptr<T[]>(new T[arr.size()]);
 			uint32_t i = 0;
 			for(const auto& x : arr) { narr[i] = x; i++; }
 			this->storage = std::move(narr);
 		};
 
+
 		// These are mostly for internal use
 
 		Tensor(std::initializer_list<T> arr, sized_array<uint32_t> shp, Device device=CPU, bool is_fill=false)
-			: device(device), is_initialized(true)
+			: device(device), is_initialized(true), shape(std::make_unique<View>(View(shp.ptr, shp.size)))
 		{
-			if(is_fill) {
-				uint64_t numel=1;
-				for(size_t i=0; i<shp.size; i++) numel *= shp.ptr[i];
-				this->shape = std::make_unique<View>(View({numel}));
-				switch(this->shape->reshape(shp.ptr, shp.size)) {
-					case SUCCESSFUL: break;
-					default: throw std::runtime_error("Error reshaping tensor.");
-				};
-				for(size_t i=0; i < this->shape->ndim(); i++) this->shape->strides[i] = 0;
-			} else {
-				this->shape = std::make_unique<View>(View({arr.size()}));
-				this->shape->reshape(shp.ptr, shp.size);
-				if(arr.size() != this->shape->numel()) throw std::runtime_error("Shape does not match data.");
-			}
+			if(is_fill) for(size_t i=0; i < this->shape->ndim(); i++) this->shape->strides[i] = 0;
+			else if(arr.size() != this->shape->numel()) throw std::length_error("Shape does not match data.");
 			std::unique_ptr<T[]> narr = std::unique_ptr<T[]>(new T[arr.size()]);
 			uint32_t i = 0;
 			for(const auto& x : arr) { narr[i] = x; i++; }
@@ -258,11 +245,8 @@ class Tensor {
 		};
 
 		Tensor(std::unique_ptr<T[]> &arr, uint64_t size, sized_array<uint32_t> shape, Device device=CPU)
-			: storage(std::move(arr)), device(device), is_initialized(true)
-		{
-			this->shape = std::make_unique<View>(View({size}));
-			this->shape->reshape(shape.ptr, shape.size);
-		}
+			: storage(std::move(arr)), device(device), is_initialized(true), shape(std::make_unique<View>(View(shape.ptr, shape.size))) {}
+
 
 		// Constructor helpers
 		
@@ -420,7 +404,7 @@ class Tensor {
 
 		// Movement OPs
 		
-		bool reshape(std::initializer_list<uint32_t> nview) { return this->execute_movement_op(nview, RESHAPE); }
+		bool reshape(std::initializer_list<int32_t> nview) { return this->execute_movement_op(nview, RESHAPE); }
 		bool permute(std::initializer_list<uint32_t> nview) { return this->execute_movement_op(nview, PERMUTE); }
 		bool expand(std::initializer_list<uint32_t> nview) { return this->execute_movement_op(nview, EXPAND); }
 
@@ -542,38 +526,44 @@ class Tensor {
 			}
 		}
 
-		bool execute_movement_op(std::initializer_list<uint32_t> nview, MovementOPs op) {
-			sized_array<uint32_t> shape;
-			shape.size = nview.size();
-			shape.ptr = std::make_unique<uint32_t[]>(nview.size());
+		bool return_from_err(op_ret ret) {
+			switch(ret) {
+				case SUCCESSFUL:
+					return 1;
+				case INVALID_ARGUMENTS: throw std::invalid_argument("Invalid Arguments."); 
+				case INVALID_NUMBER_OF_DIMENSIONS: throw std::invalid_argument("Invalid Dimensions."); 
+				case GLOBAL_LIMIT_EXCEDED: throw std::length_error("Global tensor size restriction exceeded.");
+				default:
+					return 0;
+			}
+		}
+
+		bool execute_movement_op(std::initializer_list<int32_t> nview, MovementOPs op) {
+			if(op != RESHAPE) return 0;
+			sized_array<int32_t> s { std::make_unique<int32_t[]>(nview.size()), nview.size() };
 			uint32_t i = 0;
-			for(const auto& x : nview) { shape.ptr[i++] = x;	}
+			for(const auto& x : nview) s.ptr[i++] = x;
+			this->return_from_err(this->shape->reshape(s.ptr, s.size));
+		}
+
+		bool execute_movement_op(std::initializer_list<uint32_t> nview, MovementOPs op) {
+			sized_array<uint32_t> shape { std::make_unique<uint32_t[]>(nview.size()), nview.size() };
+			uint32_t i = 0;
+			for(const auto& x : nview) shape.ptr[i++] = x;
 			op_ret ret;
 			switch(op) {
-				case RESHAPE:
-					ret = this->shape->reshape(shape.ptr, shape.size);
-					break;
 				case PERMUTE:
 					ret = this->shape->permute(shape.ptr, shape.size);
 					break;
 				case EXPAND:
 					ret = this->shape->expand(shape.ptr, shape.size);
+					break;
+				case SHRINK:
+				case FLIP:
+				case PAD:
+					return 0; // Not implemented yet
 			}
-			switch(ret) {
-				case SUCCESSFUL:
-					return 1;
-				case INVALID_ARGUMENTS:
-					throw TensorException(INVALID_SHAPE_OPERATION, "Invalid Arguments in function permute().");
-					return 0;
-				case INVALID_NUMBER_OF_DIMENSIONS:
-					throw TensorException(INVALID_SHAPE_OPERATION, "Invalid Dimensions given for function permute().");
-					return 0;
-				case GLOBAL_LIMIT_EXCEDED:
-					throw TensorException(INVALID_SHAPE_OPERATION, "Global tensor size restriction exceeded in function reshape().");
-					return 0;
-				default:
-					return 0;
-			}
+			this->return_from_err(ret);
 		}
 
 		uint64_t accumulate_strides (std::unique_ptr<uint32_t[]>& arr, size_t len) {
@@ -584,7 +574,6 @@ class Tensor {
 			}
 			return acc;
 		}
-
 };
 
 
