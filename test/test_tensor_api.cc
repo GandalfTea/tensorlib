@@ -149,7 +149,29 @@ TEST_CASE("Tensor OPs", "[core]") {
 			for(auto const& x : st) { CHECK(a.strides()[i] == x); i++; }
 		}
 
-		SECTION("Stringify Row") {
+		SECTION("One -1 arg") {
+			CHECK_NOTHROW(a.reshape({N, -1}));
+			std::initializer_list<uint32_t> tsp = {N, N};
+			std::initializer_list<uint32_t> tst = {N, 1};
+			i=0; for(const auto& x : tsp) { CHECK(a.view()[i] == x); i++; }
+			i=0; for(auto const& x : tst) { CHECK(a.strides()[i] == x); i++; }
+		}
+
+		SECTION("Multiple -1's") {
+			CHECK_THROWS(a.reshape({N/2, -1, -1}));
+			i=0; for(const auto& x : sp) { CHECK(a.view()[i] == x); i++; }
+			i=0; for(auto const& x : st) { CHECK(a.strides()[i] == x); i++; }
+		}
+
+		SECTION("1 dim -1") {
+			CHECK_NOTHROW(a.reshape({-1}));
+			std::initializer_list<uint32_t> tsp = {N*N};
+			std::initializer_list<uint32_t> tst = {1};
+			i=0; for(const auto& x : tsp) { CHECK(a.view()[i] == x); i++; }
+			i=0; for(auto const& x : tst) { CHECK(a.strides()[i] == x); i++; }
+		}
+
+		SECTION("1 Row") {
 			CHECK_NOTHROW(a.reshape({N*N, 1}));
 			std::initializer_list<uint32_t> tsp = {N*N, 1};
 			std::initializer_list<uint32_t> tst = {1, 1};
@@ -159,7 +181,7 @@ TEST_CASE("Tensor OPs", "[core]") {
 			for(auto const& x : tst) { CHECK(a.strides()[i] == x); i++; }
 		}
 
-		SECTION("Stringify Collumn") {
+		SECTION("1 Collumn") {
 			CHECK_NOTHROW(a.reshape({1, N*N}));
 			std::initializer_list<uint32_t> tsp = {1, N*N};
 			std::initializer_list<uint32_t> tst = {N*N, 1};
