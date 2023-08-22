@@ -89,7 +89,7 @@ TEST_CASE("Test Movement OPs", "[core]") {
 
 	SECTION("Test reshape {2, 2, 512} --> {2, 1024}") {
 		View a = View({2, 2, 512});	
-		std::shared_ptr<uint32_t[]> newdim = std::make_unique<uint32_t[]>(2);
+		std::shared_ptr<int32_t[]> newdim = std::make_unique<int32_t[]>(2);
 		newdim[0] = 2;
 		newdim[1] = 1024;
 		std::shared_ptr<uint32_t[]> newstrides = std::make_unique<uint32_t[]>(2);
@@ -106,16 +106,16 @@ TEST_CASE("Test Movement OPs", "[core]") {
 
 	SECTION("Test Reshape Wrong Product") {
 		View a = View({2, 2, 512});	
-		std::shared_ptr<uint32_t[]> newdim = std::make_unique<uint32_t[]>(2);
+		std::shared_ptr<int32_t[]> newdim = std::make_unique<int32_t[]>(2);
 		newdim[0] = 2;
 		newdim[1] = 512;
 		size_t len = 2;
 		CHECK(a.reshape(newdim, len) == INVALID_ARGUMENTS);
-		std::shared_ptr<uint32_t[]> newdim2 = std::make_unique<uint32_t[]>(2);
+		std::shared_ptr<int32_t[]> newdim2 = std::make_unique<int32_t[]>(2);
 		newdim2[0] = 4096;
 		newdim2[1] = 512;
 		CHECK(a.reshape(newdim2, len) == INVALID_ARGUMENTS);
-		std::shared_ptr<uint32_t[]> newdim3 = std::make_unique<uint32_t[]>(5);
+		std::shared_ptr<int32_t[]> newdim3 = std::make_unique<int32_t[]>(5);
 		newdim3[0] = 2;
 		newdim3[1] = 512;
 		newdim3[2] = 512;
@@ -128,7 +128,7 @@ TEST_CASE("Test Movement OPs", "[core]") {
 	// Not sure what's the best way to fail this.
 	SECTION("Test Reshape Wront Number of Dims") {
 		View a = View({2, 2, 512});	
-		std::shared_ptr<uint32_t[]> newdim = std::make_unique<uint32_t[]>(2);
+		std::shared_ptr<int32_t[]> newdim = std::make_unique<int32_t[]>(2);
 		newdim[0] = 2;
 		newdim[1] = 512;
 		size_t len = 1;
