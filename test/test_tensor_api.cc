@@ -200,7 +200,7 @@ TEST_CASE("Tensor OPs", "[core]") {
 		uint32_t i = 0;
 
 		SECTION("Correct") {
-			CHECK(a.expand({N, 5}));
+			CHECK_NOTHROW(a.expand({N, 5}));
 			std::initializer_list<uint32_t> tsp = {N, 5};
 			std::initializer_list<uint32_t> tst = {1, 0};
 			i=0;
