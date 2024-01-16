@@ -1,16 +1,26 @@
 
 Lightweight header-only tensor library for C++17 and later.
 
-#### Create
+&nbsp;
 
+## Create
 
-Virtual tensors (no data)
+&nbsp;
 
+### Virtual tensors (no data)
+
+`std::initializer_list`
 ```c++
-// initializer list
 auto a = Tensor<float>({2048, 2048});
-
-// sized array 
+```
+`tensor::sized_array`
+```c++
+struct tensor::sized_array {
+	std::shared_ptr<T[]> ptr = nullptr;
+	size_t size = 0;
+};
+```
+```c++
 sized_array<uint32_t> s;
 s.ptr = std::unique_ptr<uint32_t[]>(new uint32_t[2]());
 s.ptr[0] = 2048;
@@ -21,7 +31,7 @@ Tensor<float> a(s);
 
 &nbsp;
 
-Data initialization
+### Data initialization
 
 ```c++
 // float array 
