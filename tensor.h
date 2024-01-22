@@ -2,6 +2,9 @@
 #ifndef TENSOR
 #define TENSOR
 
+#if defined(__GNUC__) || defined(__clang__)
+#endif
+
 #include <string>
 #include <memory>
 #include <cmath>
@@ -9,6 +12,7 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <stdexcept>
+#include <typeinfo> // Only used in std::cout repr
 #include <initializer_list>
 
 #define TENSOR_MAX_DIM (2 << 15)
@@ -25,6 +29,47 @@ struct sized_array {
 	size_t size = 0;
 };
 
+
+#ifdef _WIN32
+  #include <intrin.h>
+#else 
+  #include <stdint.h>
+#endif
+
+void _cpuid(uint32_t op, uint32_t& eax, uint32_t& ebx, uint32_t& ecx, uint32_t& edx) {
+#ifdef _WIN32
+  __cpuid((int*)regs, (int)i);
+#else
+  asm volatile(
+    "cpuid" 
+    : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
+    : "a"(op)
+    : "cc" );
+#endif
+}
+
+uint32_t cpuid_maxcall() {
+  uint32_t eax, ebx, ecx, edx;
+  _cpuid( 0, eax, ebx, ecx, edx);
+  return eax;
+}
+
+
+// For gemms
+typedef enum {
+  AUTO_OP,
+  GEMM,
+  GTC
+} dot_op;
+
+typedef enum {
+  AUTO_ARCH,
+  CUDA,
+  IVY_LAKE,
+  ZEN,
+} arch;
+
+// err handling
 typedef enum {
 	SUCCESSFUL,
 	INVALID_ARGUMENTS,
@@ -192,9 +237,11 @@ template<typename T = float>
 class Tensor {
 
 	std::shared_ptr<T[]> storage = nullptr;
+  std::shared_ptr<T[]> grad = nullptr;
 	std::shared_ptr<View> shape = nullptr;
 
 	public : 
+    bool bgrad = false;
 		bool beye = false;
 		bool bresolved = false;
 		bool is_initialized=false;
@@ -403,6 +450,7 @@ class Tensor {
 		}
 
 		// Movement OPs
+		// TODO: These might allow for unwanted changes to the data. Maybe clone?
 		
 		bool reshape(std::initializer_list<int32_t> nview) { return this->execute_movement_op(nview, RESHAPE); }
 		bool permute(std::initializer_list<uint32_t> nview) { return this->execute_movement_op(nview, PERMUTE); }
@@ -418,10 +466,15 @@ class Tensor {
 			return ret;
 		}
 
-		// TODO: These might allow for unwanted changes to the data. Maybe clone?
+    // DOT PRODUCTS
+
+    static std::shared_ptr<uint32_t[]> dot(Tensor<T> &lhs, Tensor<T> &rhs, dot_op=AUTO_OP, arch=AUTO_ARCH) {
+      return _cpuid(1);
+    }
 
 		public: 
 
+    // TODO: size and numel are the same
 		std::shared_ptr<T[]> data() { return this->storage; }
 		uint32_t ndim() { return this->shape->ndim(); }
 		uint64_t size() { return this->shape->numel(); }
@@ -580,16 +633,43 @@ class Tensor {
 
 // OUTPUT REPR 
 
+std::string bytes_to_str(size_t size) {
+  if(size >= 1e9) return std::to_string((float)size/1e9)+" GB";
+  else if (size >= 1e6) return std::to_string((float)size/1e6)+" MB";
+  else if (size >= 1e3) return std::to_string((float)size/1e3)+" kB";
+  else return std::to_string(size)+" B";
+}
+
 template<typename T>
 inline std::ostream& operator<<(std::ostream& outs, Tensor<T>& tensor) {
-	std::string repr = "<Tensor (";
+	std::string repr = "<Tensor view({";
 	auto shape = tensor.view();
+  auto strides = tensor.strides();
+  std::string str="";
 	for(size_t i=0; i < tensor.ndim(); i++) {
 		repr += std::to_string(shape[i]);
-		repr += ", ";
+		repr += (i == tensor.ndim()-1) ? "" : ", ";
+    str += std::to_string(strides[i]);
+		str += (i == tensor.ndim()-1) ? "" : ", ";
 	}
-	repr += ") on ";
+	repr += "}";
+  repr += "(" + str + ")), on ";
 	repr += (tensor.device == 1) ? "CPU" : "GPU"; 
+  if(tensor.is_initialized) {
+    repr += ", type ";
+    repr += typeid(tensor.data()[0]).name();
+    repr += std::to_string(sizeof(tensor.data()[0])*8);
+  }
+  repr += (tensor.bgrad) ? ", grad=true" : ", grad=false";
+  if(tensor.beye || !tensor.bresolved) {
+    repr += ", disk: " + std::to_string(sizeof(tensor)) + " B";
+  } else if (!tensor.is_initialized) {
+    repr += ", disk: " + std::to_string(sizeof(tensor)) + " B";
+  } else {
+    repr += ", disk: " + bytes_to_str(tensor.numel()*sizeof(tensor.data()[0]) + sizeof(tensor));
+  }
+  repr += (tensor.is_initialized) ? "" : ", is_initialized=false";
+  repr += (!tensor.is_initialized) ? "" : (tensor.bresolved) ? "" : ", resolved=false";
 	repr += ">";
 	return outs << repr;
 }
@@ -612,5 +692,7 @@ inline std::ostream& operator<<(std::ostream& outs, View& view) {
 
 	return outs << repr;
 }
+
+
 } // namespace
 #endif
