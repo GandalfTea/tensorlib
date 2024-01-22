@@ -469,7 +469,14 @@ class Tensor {
     // DOT PRODUCTS
 
     static std::shared_ptr<uint32_t[]> dot(Tensor<T> &lhs, Tensor<T> &rhs, dot_op=AUTO_OP, arch=AUTO_ARCH) {
-      return _cpuid(1);
+      std::shared_ptr<uint32_t[]> ret = std::make_unique<uint32_t[]>(4);
+      uint32_t eax, ebx, ecx, edx;
+      _cpuid( 1, eax, ebx, ecx, edx);
+      ret[0] = eax;
+      ret[1] = ebx;
+      ret[2] = ecx;
+      ret[3] = edx;
+      return ret;
     }
 
 		public: 
