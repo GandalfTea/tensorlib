@@ -22,6 +22,8 @@
 #include <typeinfo> // Only used in std::cout repr
 #include <initializer_list>
 
+#include <iostream> // DEBUG
+
 #define TENSOR_MAX_DIM (2 << 15)
 #define TENSOR_MAX_STORAGE_SIZE UINT_MAX 
 #define DEBUG 0
@@ -29,7 +31,6 @@
 using std::size_t;
 
 namespace tensor {
-
 
 void _cpuid(uint32_t op, uint32_t& eax, uint32_t& ebx, uint32_t& ecx, uint32_t& edx) {
 #ifdef _WIN32
@@ -83,6 +84,7 @@ typedef enum {
 	FLIP,
 	PAD
 } MovementOPs;
+
 
 template<typename T>
 struct sized_array {
@@ -196,21 +198,24 @@ struct View {
 		return SUCCESSFUL;
 	}
 
+
+
   // TODO: this should be the default expand function 
-  // NOTE: int64_t to cover for being signed
+  // TODO: signed int32 restricts input values 
   // NOTE: -1 is a relative index to the next existing dimension in line, it's position is irrelevant
   // {128, 128} -> {5, 128, 5, 128, 5}
   // {128, 128} -> {5,  -1, 5, 128, 5}
-  // {128, 128} -> {5, 128, 5,  -1, 5}  -- FAIL: index out of range
-  op_ret fancy_expand(std::shared_ptr<int64_t[]> &argview, size_t &len) {
+  // {128, 128} -> {5, 128, 5,  -1, 5}  
+  op_ret fancy_expand(std::shared_ptr<int32_t[]> &argview, size_t &len) {
     if(len < this->numdim) return INVALID_NUMBER_OF_DIMENSIONS;
     uint32_t hits = 0;
     uint64_t acc = 1;
 		std::unique_ptr<uint32_t[]> newview = std::unique_ptr<uint32_t[]>(new uint32_t[len]);
 		std::unique_ptr<uint32_t[]> newstrd = std::unique_ptr<uint32_t[]>(new uint32_t[len]);
     for(size_t i=0; i<len; i++) {
+      if(argview[i] < -1) return INVALID_ARGUMENTS;
       if(argview[i] == -1) {
-        if(i < this->numdim) {
+        if(hits < this->numdim) {
           newview[i] = this->view[hits];
           newstrd[i] = this->strides[hits];
           hits++;
@@ -229,6 +234,30 @@ struct View {
     this->strides = std::move(newstrd);
     this->elements = acc;
     this->numdim = len;
+    return SUCCESSFUL;
+  }
+
+  op_ret strip() {
+    uint32_t idx = 0;
+    uint64_t acc = 1;
+    uint32_t nndim = 0;
+    for(size_t i=0; i<this->numdim; i++) if(this->strides[i] != 0) nndim++; // Shit code
+		std::unique_ptr<uint32_t[]> nview = std::unique_ptr<uint32_t[]>(new uint32_t[nndim]);
+		std::unique_ptr<uint32_t[]> nstrd = std::unique_ptr<uint32_t[]>(new uint32_t[nndim]);
+    for(size_t i=0; i<this->numdim; i++) {
+      if(this->strides[i] != 0) {
+        nview[idx] = this->view[i]; 
+        nstrd[idx] = this->strides[i];
+        acc *= this->view[i];
+        idx++;
+      }
+    } 
+    if(acc != this->disklen) return INVALID_ARGUMENTS;
+    this->view = std::move(nview);
+    this->strides = std::move(nstrd);
+    this->numdim = idx;
+    this->elements = this->disklen;
+    return SUCCESSFUL;
   }
 
 	// TODO: Implement
@@ -501,7 +530,7 @@ class Tensor {
 		bool expand(std::initializer_list<uint32_t> nview) { return this->execute_movement_op(nview, EXPAND); }
 
     int fancy_expand(std::initializer_list<uint32_t> nview) {
-			sized_array<int64_t> shape { std::make_unique<int64_t[]>(nview.size()), nview.size() };
+			sized_array<int32_t> shape { std::make_unique<int32_t[]>(nview.size()), nview.size() };
 			uint32_t i = 0;
 			for(const auto& x : nview) shape.ptr[i++] = x;
       return this->shape->fancy_expand(shape.ptr, shape.size);
@@ -538,6 +567,7 @@ class Tensor {
 		uint64_t size() { return this->shape->numel(); }
 		uint64_t numel() { return this->shape->numel(); }
     uint64_t disklen() { return this->shape->disksize(); }
+    op_ret strip() { return this->shape->strip(); }
 
 		T item() {
 			if(this->size() == 1) {
@@ -676,7 +706,7 @@ class Tensor {
 				case PAD:
 					return 0; // Not implemented yet
 			}
-			this->return_from_err(ret);
+			return this->return_from_err(ret);
 		}
 
 		uint64_t accumulate_strides (std::unique_ptr<uint32_t[]>& arr, size_t len) {
@@ -702,7 +732,7 @@ std::string bytes_to_str(size_t size) {
 
 template<typename T>
 inline std::ostream& operator<<(std::ostream& outs, Tensor<T>& tensor) {
-	std::string repr = "<Tensor view({";
+	std::string repr = "<Tensor view([";
 	auto shape = tensor.view();
   auto strides = tensor.strides();
   std::string str="";
@@ -712,21 +742,21 @@ inline std::ostream& operator<<(std::ostream& outs, Tensor<T>& tensor) {
     str += std::to_string(strides[i]);
 		str += (i == tensor.ndim()-1) ? "" : ", ";
 	}
-	repr += "}";
+	repr += "]";
   repr += "(" + str + ")), on ";
 	repr += (tensor.device == 1) ? "CPU" : "GPU"; 
   if(tensor.is_initialized) {
-    repr += ", type ";
+    repr += ", type=";
     repr += typeid(tensor.data()[0]).name();
     repr += std::to_string(sizeof(tensor.data()[0])*8);
   }
-  repr += (tensor.bgrad) ? ", grad=true" : ", grad=false";
+  repr += ", grad="+std::to_string(tensor.bgrad);
   if(tensor.beye || !tensor.bresolved) {
-    repr += ", disk: " + std::to_string(sizeof(tensor)) + " B";
+    repr += ", disk=" + std::to_string(sizeof(tensor)) + " B";
   } else if (!tensor.is_initialized) {
-    repr += ", disk: " + std::to_string(sizeof(tensor)) + " B";
+    repr += ", disk=" + std::to_string(sizeof(tensor)) + " B";
   } else {
-    repr += ", disk: " + bytes_to_str(tensor.disklen()*sizeof(tensor.data()[0]) + sizeof(tensor));
+    repr += ", disk=" + bytes_to_str(tensor.disklen()*sizeof(tensor.data()[0]) + sizeof(tensor));
   }
   repr += (tensor.is_initialized) ? "" : ", is_initialized=false";
   repr += (!tensor.is_initialized) ? "" : (tensor.bresolved) ? "" : ", resolved=false";
