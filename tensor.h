@@ -163,17 +163,21 @@ struct View {
 		return SUCCESSFUL;
 	}
 
-	//TODO: Do not allow repeat dims without looping 
+
+  // NOTE: using consecutive sum to not allow repeat dims
 	op_ret permute(std::shared_ptr<uint32_t[]> &idxs, size_t &len) {
+    uint32_t consum = ((len-1)*(len))/2;
+    uint32_t consum_c = 0;
 		if(len != this->numdim) return INVALID_NUMBER_OF_DIMENSIONS;
 		std::unique_ptr<uint32_t[]> newview = std::unique_ptr<uint32_t[]>(new uint32_t[len]);
 		std::unique_ptr<uint32_t[]> newstrd = std::unique_ptr<uint32_t[]>(new uint32_t[len]);
 		for(size_t i=0; i < len; i++) {
-      for(size_t j=0; j < i; i++) if(idxs[i] == newview[i]) return INVALID_ARGUMENTS; // This is shit code
 			if(idxs[i] >= this->numdim || idxs[i] < 0) return INVALID_ARGUMENTS;
 			newview[i] = this->view[idxs[i]];	
 			newstrd[i] = this->strides[idxs[i]];
+      consum_c += idxs[i];
 		}
+    if(consum_c != consum) return INVALID_ARGUMENTS;
 		this->view = std::move(newview);
 		this->strides = std::move(newstrd);
 		return SUCCESSFUL;
