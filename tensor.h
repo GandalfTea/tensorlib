@@ -108,6 +108,7 @@ struct View {
 		}
 		if(acc > TENSOR_MAX_STORAGE_SIZE) throw std::length_error("TENSOR_MAX_STORAGE_SIZE Exceeded.");
 		this->elements = acc;
+		this->disklen = acc;
 		this->restride();
 	}
 
@@ -124,6 +125,7 @@ struct View {
 		}
 		if(acc > TENSOR_MAX_STORAGE_SIZE) throw std::length_error("TENSOR_MAX_STORAGE_SIZE Exceeded.");
 		this->elements = acc;
+		this->disklen = acc;
 		this->restride();
 	}
 
@@ -232,10 +234,12 @@ struct View {
 
 	uint32_t ndim()  { return this->numdim; }
 	uint64_t numel() { return this->elements; }
+  uint64_t disksize() { return this->disklen; }
 
 	private:
 		uint32_t numdim = 0;
 		uint64_t elements = 0;
+    uint64_t disklen = 0;
 
 		void restride() {
 			this->strides = std::unique_ptr<uint32_t[]>(new uint32_t[this->numdim]);
@@ -432,7 +436,7 @@ class Tensor {
 
 		// Apply arg function to each element in storage
 		void exec(void (*f)(T)) {
-			for(size_t i=0; i<this->numel(); i++) this->storage[i] = f(this->storage[i]);
+			for(size_t i=0; i<this->disklen(); i++) this->storage[i] = f(this->storage[i]);
 		}
 
 
@@ -529,6 +533,7 @@ class Tensor {
 		uint32_t ndim() { return this->shape->ndim(); }
 		uint64_t size() { return this->shape->numel(); }
 		uint64_t numel() { return this->shape->numel(); }
+    uint64_t disklen() { return this->shape->disksize(); }
 
 		T item() {
 			if(this->size() == 1) {
@@ -558,6 +563,7 @@ class Tensor {
 			std::shared_ptr<uint32_t[]> ret = this->shape->strides;
 			return ret;
 		}
+
 
 
 
@@ -716,7 +722,7 @@ inline std::ostream& operator<<(std::ostream& outs, Tensor<T>& tensor) {
   } else if (!tensor.is_initialized) {
     repr += ", disk: " + std::to_string(sizeof(tensor)) + " B";
   } else {
-    repr += ", disk: " + bytes_to_str(tensor.numel()*sizeof(tensor.data()[0]) + sizeof(tensor));
+    repr += ", disk: " + bytes_to_str(tensor.disklen()*sizeof(tensor.data()[0]) + sizeof(tensor));
   }
   repr += (tensor.is_initialized) ? "" : ", is_initialized=false";
   repr += (!tensor.is_initialized) ? "" : (tensor.bresolved) ? "" : ", resolved=false";
