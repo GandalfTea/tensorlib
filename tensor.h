@@ -2,6 +2,8 @@
 #ifndef TENSOR
 #define TENSOR
 
+#define DEBUG 3
+
 #if defined(__GNUC__) || defined(__clang__)
 #endif
 
@@ -28,7 +30,16 @@
 
 #define TENSOR_MAX_DIM (2 << 15)
 #define TENSOR_MAX_STORAGE_SIZE UINT_MAX 
-#define DEBUG 0
+
+#if DEBUG > 2
+#include <iomanip>
+std::string bytes_to_str(size_t size) {
+  if(size >= 1e9) return std::to_string((float)size/1e9)+" GB";
+  else if (size >= 1e6) return std::to_string((float)size/1e6)+" MB";
+  else if (size >= 1e3) return std::to_string((float)size/1e3)+" kB";
+  else return std::to_string(size)+" B";
+}
+#endif
 
 using std::size_t;
 
@@ -356,7 +367,7 @@ class Tensor {
 		// These are mostly for internal use
 
 		Tensor(std::initializer_list<T> arr, sized_array<uint32_t> shp, Device device=CPU, bool is_fill=false)
-			: device(device), is_initialized(true), shape(std::make_unique<View>(View(shp.ptr, shp.size)))
+			: device(device), is_initialized(true), bresolved(true), shape(std::make_unique<View>(View(shp.ptr, shp.size)))
 		{
 			if(is_fill) for(size_t i=0; i < this->shape->ndim(); i++) this->shape->strides[i] = 0;
 			else if(arr.size() != this->shape->numel()) throw std::length_error("Shape does not match data.");
@@ -367,7 +378,8 @@ class Tensor {
 		};
 
 		Tensor(std::unique_ptr<T[]> &arr, uint64_t size, sized_array<uint32_t> shape, Device device=CPU)
-			: storage(std::move(arr)), device(device), is_initialized(true), shape(std::make_unique<View>(View(shape.ptr, shape.size))) {}
+			: storage(std::move(arr)), device(device), is_initialized(true), bresolved(true),
+				shape(std::make_unique<View>(View(shape.ptr, shape.size))) {}
 
 
 		// Constructor helpers
@@ -562,7 +574,9 @@ class Tensor {
         lhs.gemm<rows, cols, in>(lhs.data().get(), rhs.data().get(), ret.data().get());
         auto end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double, std::milli> ms_double = end - start;
-        std::cout << "sgemm runtime: " << ms_double.count() << " ms" << std::endl;
+				std::cout << "<sgemm FLOPS=" << (double)2*rows*cols*in << " runtime=" << (float)ms_double.count() << "ms ";
+				std::cout << std::setw(8) << std::setprecision(3) << ms_double.count() / (long double)(2*rows*cols*in) << "ms/FLOP LOAD=" << 
+								     bytes_to_str(rows*in+in*cols) << ">" << std::endl;
         return ret;
       }
     }
@@ -741,13 +755,6 @@ class Tensor {
 
 
 // OUTPUT REPR 
-
-std::string bytes_to_str(size_t size) {
-  if(size >= 1e9) return std::to_string((float)size/1e9)+" GB";
-  else if (size >= 1e6) return std::to_string((float)size/1e6)+" MB";
-  else if (size >= 1e3) return std::to_string((float)size/1e3)+" kB";
-  else return std::to_string(size)+" B";
-}
 
 template<typename T>
 inline std::ostream& operator<<(std::ostream& outs, Tensor<T>& tensor) {
