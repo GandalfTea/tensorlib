@@ -32,13 +32,23 @@
 #define TENSOR_MAX_STORAGE_SIZE UINT_MAX 
 
 #if DEBUG > 2
+
 #include <iomanip>
+template<typename T>
+std::string to_string_with_precision(const T val, const uint32_t n=6) {
+	std::ostringstream out;
+	out.precision(n);
+	out << std::fixed << val;
+	return std::move(out).str();
+}
+
 std::string bytes_to_str(size_t size) {
-  if(size >= 1e9) return std::to_string((float)size/1e9)+" GB";
-  else if (size >= 1e6) return std::to_string((float)size/1e6)+" MB";
-  else if (size >= 1e3) return std::to_string((float)size/1e3)+" kB";
+  if(size >= 1e9) return to_string_with_precision((float)size/1e9, 2)+" GB";
+  else if (size >= 1e6) return to_string_with_precision((float)size/1e6, 2)+" MB";
+  else if (size >= 1e3) return to_string_with_precision((float)size/1e3, 2)+" kB";
   else return std::to_string(size)+" B";
 }
+
 #endif
 
 using std::size_t;
@@ -574,9 +584,9 @@ class Tensor {
         lhs.gemm<rows, cols, in>(lhs.data().get(), rhs.data().get(), ret.data().get());
         auto end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double, std::milli> ms_double = end - start;
-				std::cout << "<sgemm FLOPS=" << (double)2*rows*cols*in << " runtime=" << (float)ms_double.count() << "ms ";
-				std::cout << std::setw(8) << std::setprecision(3) << ms_double.count() / (long double)(2*rows*cols*in) << "ms/FLOP LOAD=" << 
-								     bytes_to_str(rows*in+in*cols) << ">" << std::endl;
+				std::cout << "<sgemm GFLOPS=" << (2*rows*cols*in)/1e9 << " runtime=" << (float)ms_double.count() << "ms  ";
+				std::cout << ((long double)(2*rows*cols*in)/(ms_double.count()/1000))/1e9 << " GFLOPS/s LOAD=" << 
+								     bytes_to_str((rows*in+in*cols)*sizeof(float)) << ">" << std::endl;
         return ret;
       }
     }
