@@ -22,7 +22,9 @@
 #include <typeinfo> // Only used in std::cout repr
 #include <initializer_list>
 
-#include <iostream> // DEBUG
+// DEBUG
+#include <iostream> 
+#include <chrono>
 
 #define TENSOR_MAX_DIM (2 << 15)
 #define TENSOR_MAX_STORAGE_SIZE UINT_MAX 
@@ -546,17 +548,23 @@ class Tensor {
 			return ret;
 		}
 
-    // DOT PRODUCTS
+    // naive mul for now 
+    template< uint32_t rows, uint32_t cols, uint32_t in>
+    static Tensor<T> dot(Tensor<T> &lhs, Tensor<T> &rhs, dot_op=AUTO_OP, arch=AUTO_ARCH) {
+      if(lhs.ndim() == 2 && rhs.ndim() == 2) {
+        sized_array<uint32_t> s {std::unique_ptr<uint32_t[]>(new uint32_t[2]), 2};
+        s.ptr[0] = rows;
+        s.ptr[1] = cols;
+        std::unique_ptr<T[]> data = std::unique_ptr<T[]>(new T[s.ptr[0]*s.ptr[1]]);
+        Tensor<T> ret = Tensor<T>(data, s.ptr[0]*s.ptr[1], s);
 
-    static std::shared_ptr<uint32_t[]> dot(Tensor<T> &lhs, Tensor<T> &rhs, dot_op=AUTO_OP, arch=AUTO_ARCH) {
-      std::shared_ptr<uint32_t[]> ret = std::make_unique<uint32_t[]>(4);
-      uint32_t eax, ebx, ecx, edx;
-      _cpuid( 1, eax, ebx, ecx, edx);
-      ret[0] = eax;
-      ret[1] = ebx;
-      ret[2] = ecx;
-      ret[3] = edx;
-      return ret;
+        auto start = std::chrono::high_resolution_clock::now();
+        lhs.gemm<rows, cols, in>(lhs.data().get(), rhs.data().get(), ret.data().get());
+        auto end = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double, std::milli> ms_double = end - start;
+        std::cout << "sgemm runtime: " << ms_double.count() << " ms" << std::endl;
+        return ret;
+      }
     }
 
 		public: 
@@ -709,7 +717,7 @@ class Tensor {
 			return this->return_from_err(ret);
 		}
 
-		uint64_t accumulate_strides (std::unique_ptr<uint32_t[]>& arr, size_t len) {
+		inline uint64_t accumulate_strides (std::unique_ptr<uint32_t[]>& arr, size_t len) {
 			uint64_t acc = 0; 
 			for(size_t i=0; i < len; i++) {
 				if(arr[i] >= this->shape->view[i]) throw TensorException(INVALID_SHAPE_OPERATION, "Index out of bounds.");
@@ -717,6 +725,17 @@ class Tensor {
 			}
 			return acc;
 		}
+
+    template<uint32_t rows, uint32_t columns, uint32_t inner>
+    inline void gemm(const float* lhs, const float* rhs, float* result) {
+      for(uint32_t row=0; row < rows; row++) {
+        for(uint32_t in=0; in < inner; in++) {
+          for(uint32_t col=0; col < columns; col++) {
+            result[row*columns+col] += lhs[row*columns+in] * rhs[in*columns+col];
+          }
+        }
+      }
+    }
 };
 
 
