@@ -276,13 +276,11 @@ TEST_CASE("Tensor OPs", "[core]") {
 		}
 
 		SECTION("Repeting dimensions") {
-			/*
 			CHECK_THROWS(a.permute({0, 0, 1}));
 			i=0;
 			for(const auto& x : sp) { CHECK(a.view()[i] == x); i++; }
 			i=0;
 			for(auto const& x : st) { CHECK(a.strides()[i] == x); i++; }
-			*/
 		}
 
 		SECTION("Invalid number of dimensions") {
