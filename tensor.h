@@ -1,18 +1,10 @@
-
 #ifndef TENSOR
 #define TENSOR
 
+#define TENSOR_MAX_DIM (2 << 15)
+#define TENSOR_MAX_STORAGE_SIZE UINT_MAX 
 #define DEBUG 3
 
-#if defined(__GNUC__) || defined(__clang__)
-#endif
-
-// CPUID
-#ifdef _WIN32
-  #include <intrin.h>
-#else 
-  #include <stdint.h>
-#endif
 
 #include <string>
 #include <memory>
@@ -23,17 +15,20 @@
 #include <stdexcept>
 #include <typeinfo> // Only used in std::cout repr
 #include <initializer_list>
+using std::size_t;
 
-// DEBUG
-#include <iostream> 
-#include <chrono>
-
-#define TENSOR_MAX_DIM (2 << 15)
-#define TENSOR_MAX_STORAGE_SIZE UINT_MAX 
+// CPUID
+#ifdef _WIN32
+  #include <intrin.h>
+#else 
+  #include <stdint.h>
+#endif
 
 #if DEBUG > 2
-
+#include <omp.h>
 #include <iomanip>
+#include <iostream>
+#include <chrono>
 template<typename T>
 std::string to_string_with_precision(const T val, const uint32_t n=6) {
 	std::ostringstream out;
@@ -48,18 +43,14 @@ std::string bytes_to_str(size_t size) {
   else if (size >= 1e3) return to_string_with_precision((float)size/1e3, 2)+" kB";
   else return std::to_string(size)+" B";
 }
-
 #endif
 
-using std::size_t;
-
-namespace tensor {
-
+// CPUID HELPERS
 void _cpuid(uint32_t op, uint32_t& eax, uint32_t& ebx, uint32_t& ecx, uint32_t& edx) {
-#ifdef _WIN32
+#ifdef _WIN32 // microsoft is baka and doesn't support asm
   __cpuid((int*)regs, (int)i);
 #else
-  asm volatile(
+  asm volatile (
     "cpuid" 
     : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
     : "a"(op)
@@ -67,12 +58,14 @@ void _cpuid(uint32_t op, uint32_t& eax, uint32_t& ebx, uint32_t& ecx, uint32_t& 
 #endif
 }
 
-uint32_t cpuid_maxcall() {
+uint32_t cpuid_highest_leaf() {
   uint32_t eax, ebx, ecx, edx;
-  _cpuid( 0, eax, ebx, ecx, edx);
+  _cpuid(0, eax, ebx, ecx, edx);
   return eax;
 }
 
+
+namespace tensor {
 
 // For gemms
 typedef enum {
@@ -222,7 +215,6 @@ struct View {
 	}
 
 
-
   // TODO: this should be the default expand function 
   // TODO: signed int32 restricts input values 
   // NOTE: -1 is a relative index to the next existing dimension in line, it's position is irrelevant
@@ -333,7 +325,7 @@ template<typename T = float>
 class Tensor {
 
 	std::shared_ptr<T[]> storage = nullptr;
-  std::shared_ptr<T[]> grad = nullptr;
+  std::shared_ptr<float[]> grad = nullptr;
 	std::shared_ptr<View> shape = nullptr;
 
 	public : 
@@ -346,7 +338,6 @@ class Tensor {
 	public:
 
 		// Virtual Tensors, contains no data
-		
 		Tensor(std::initializer_list<uint32_t> shp, Device device=CPU)
 			: shape(std::make_unique<View>(View(shp))), device(device) {}
 
@@ -355,7 +346,6 @@ class Tensor {
 
 
 		// Data init
-
 		Tensor(std::unique_ptr<T[]> &arr, size_t size, std::initializer_list<uint32_t> shape, Device device=CPU) 
 			: storage(std::move(arr)), shape(std::make_unique<View>(View(shape))),
 				device(device), is_initialized(true), bresolved(true)
@@ -375,7 +365,6 @@ class Tensor {
 
 
 		// These are mostly for internal use
-
 		Tensor(std::initializer_list<T> arr, sized_array<uint32_t> shp, Device device=CPU, bool is_fill=false)
 			: device(device), is_initialized(true), bresolved(true), shape(std::make_unique<View>(View(shp.ptr, shp.size)))
 		{
@@ -591,6 +580,30 @@ class Tensor {
       }
     }
 
+/*
+    struct {
+      unsigned vendor_id: 12;
+      unsigned model_id: 4;
+      unsigned family_id: 4;
+      unsigned extended_model: 4;
+      unsigned extended_family: 4;
+      
+      unsigned status: 1; 
+    } cpuid_bits;
+
+    typedef union {
+      cpuid_bits bits;
+      uint64_t w;
+    } cpuid1_e;
+
+*/
+    // auto a = Tensor<>::get_processor_information();
+    static uint32_t get_cpu_info( uint32_t op ) {
+      uint32_t eax, ebx, ecx, edx; 
+      _cpuid(op, eax, ebx, ecx, edx);
+      return eax;
+    }
+
 		public: 
 
     // TODO: size and numel are the same
@@ -751,7 +764,8 @@ class Tensor {
 		}
 
     template<uint32_t rows, uint32_t columns, uint32_t inner>
-    inline void gemm(const float* lhs, const float* rhs, float* result) {
+    inline void gemm(float* const lhs, float* const rhs, float* const result) {
+      #pragma omp parallel for shared(result, lhs, rhs) default(none) collapse(2) num_threads(24)
       for(uint32_t row=0; row < rows; row++) {
         for(uint32_t in=0; in < inner; in++) {
           for(uint32_t col=0; col < columns; col++) {
@@ -760,6 +774,42 @@ class Tensor {
         }
       }
     }
+
+    /*
+    template<uint32_t block, uint32_t rows, uint32_t columns, uint32_t inner>
+    inline void m256bgemm(float* const rows, float* const columns, float* const out) {
+
+      for(size_t rb=0; rb<rows; rb++) {
+        for(size_t ib=0; ib<inner; ib++) {
+          __m256 tc[block];
+          for(size_t cb=0; cb<columns; cb++) {
+            
+          }
+        }
+      }
+      _mm256_fmadd_ps()
+    }
+*/
+
+    template<uint32_t block, uint32_t rows, uint32_t columns, uint32_t inner>
+    inline void tgemm(const float* lhs, const float* rhs, float* out) {
+      #pragma omp parallel for shared(out, lhs, rhs) default(none) collapse(2) num_threads(16)
+      for(size_t row_tile=0; row_tile < rows; row_tile += block) {
+        for(size_t column_tile=0; column_tile < columns; column_tile += block) {
+          for(size_t inner_tile=0; inner_tile < inner; inner_tile += block) {
+            for(size_t row=row_tile; row < row_tile+block; row++) {
+              uint32_t i_tile_end = std::min<float>(inner, inner_tile+block);
+              for(size_t in=inner_tile; in<i_tile_end; in++) {
+                for(size_t col=column_tile; col<column_tile+block; col++) {
+                  out[row*columns+col] += lhs[row*inner+in] * rhs[in*columns+col];
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
 };
 
 
