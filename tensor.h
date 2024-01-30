@@ -570,7 +570,7 @@ class Tensor {
         Tensor<T> ret = Tensor<T>(data, s.ptr[0]*s.ptr[1], s);
 
         auto start = std::chrono::high_resolution_clock::now();
-        lhs.gemm<rows, cols, in>(lhs.data().get(), rhs.data().get(), ret.data().get());
+        lhs.gemm< rows, cols, in>(lhs.data().get(), rhs.data().get(), ret.data().get());
         auto end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double, std::milli> ms_double = end - start;
 				std::cout << "<sgemm GFLOPS=" << (2*rows*cols*in)/1e9 << " runtime=" << (float)ms_double.count() << "ms  ";
@@ -763,17 +763,18 @@ class Tensor {
 			return acc;
 		}
 
-    template<uint32_t rows, uint32_t columns, uint32_t inner>
-    inline void gemm(float* const lhs, float* const rhs, float* const result) {
+    template<int rows, int columns, int inners>
+    inline void gemm(T* const lhs, T* const rhs, T* const result) {
       #pragma omp parallel for shared(result, lhs, rhs) default(none) collapse(2) num_threads(24)
-      for(uint32_t row=0; row < rows; row++) {
-        for(uint32_t in=0; in < inner; in++) {
-          for(uint32_t col=0; col < columns; col++) {
+      for(size_t row=0; row < rows; row++) {
+        for(size_t in=0; in < inners; in++) {
+          for(size_t col=0; col < columns; col++) {
             result[row*columns+col] += lhs[row*columns+in] * rhs[in*columns+col];
           }
         }
       }
     }
+
 
     /*
     template<uint32_t block, uint32_t rows, uint32_t columns, uint32_t inner>
@@ -791,14 +792,14 @@ class Tensor {
     }
 */
 
-    template<uint32_t block, uint32_t rows, uint32_t columns, uint32_t inner>
+    template<int block, int rows, int columns, int inner>
     inline void tgemm(const float* lhs, const float* rhs, float* out) {
-      #pragma omp parallel for shared(out, lhs, rhs) default(none) collapse(2) num_threads(16)
+      #pragma omp parallel for shared(out, lhs, rhs) default(none) collapse(2) num_threads(24)
       for(size_t row_tile=0; row_tile < rows; row_tile += block) {
         for(size_t column_tile=0; column_tile < columns; column_tile += block) {
           for(size_t inner_tile=0; inner_tile < inner; inner_tile += block) {
             for(size_t row=row_tile; row < row_tile+block; row++) {
-              uint32_t i_tile_end = std::min<float>(inner, inner_tile+block);
+              int i_tile_end = std::min<float>(inner, inner_tile+block);
               for(size_t in=inner_tile; in<i_tile_end; in++) {
                 for(size_t col=column_tile; col<column_tile+block; col++) {
                   out[row*columns+col] += lhs[row*inner+in] * rhs[in*columns+col];
