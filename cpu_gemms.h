@@ -16,7 +16,7 @@
 
 // 0x01 - extended basic information
 
-union {
+typedef union {
   struct {
     unsigned stepping_id: 4;
     unsigned model_id: 4;
@@ -39,7 +39,7 @@ union {
   uint32_t eax;
 } eax1b;
 
-union {
+typedef union {
   struct {
     unsigned brand_index: 8;
     unsigned CGLUSH_line_size: 8;
@@ -49,7 +49,7 @@ union {
   uint32_t ebx;
 } ebx1b;
 
-union {
+typedef union {
   struct {
     unsigned SSE: 1;
     unsigned : 2;
@@ -75,7 +75,7 @@ union {
   uint32_t ecx;
 } ecx1b;
 
-union {
+typedef union {
   struct {
     unsigned FPU: 1;  // FPU87 on chip
     unsigned VME: 1;  // Virtual 8086 extensions
@@ -146,7 +146,7 @@ union {
 
 // helpers
 
-void _cpuid(uint32_t op, uint32_t& eax, uint32_t& ebx, uint32_t& ecx, uint32_t& edx) {
+void _cpuid(long int op, uint32_t& eax, uint32_t& ebx, uint32_t& ecx, uint32_t& edx) {
   asm volatile(
     "cpuid"
     : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
@@ -173,7 +173,7 @@ uint32_t* cpuid_cache_info() {
 // 0x800000005 - L1 + TLB
 
 // 2M+4M page TLB info
-union {
+typedef union {
   struct {
     unsigned inst_count: 8;
     unsigned inst_assoc: 8;
@@ -184,7 +184,7 @@ union {
 } eax5x;
 
 // 4K page TLB info
-union {
+typedef union {
   struct {
     unsigned inst_count: 8;
     unsigned inst_assoc: 8;
@@ -195,7 +195,7 @@ union {
 } ebx5x;
 
 // L1 data cache info
-union {
+typedef union {
   struct {
     unsigned line_size: 8;
     unsigned lines_per_tag: 8;
@@ -206,7 +206,7 @@ union {
 } ecx5x;
 
 // L1 instruction cache info
-union {
+typedef union {
   struct {
     unsigned line_size: 8;
     unsigned lines_per_tag: 8;
@@ -217,11 +217,25 @@ union {
 } edx5x;
 
 
+uint32_t amd_highest_8xleaf() {
+  uint32_t* regs = new uint32_t[4];
+  _cpuid(0x80000000, regs[0], regs[1], regs[2], regs[3]);
+  return regs[0];
+}
+
+uint32_t* amd_l1_cpuid() {
+  uint32_t* regs = new uint32_t[4];
+  if(amd_highest_8xleaf() >= 0x80000005) {
+    _cpuid(0x80000005, regs[0], regs[1], regs[2], regs[3]);
+    return regs;
+  } else regs[0] = 0;
+  return regs;
+}
 
 // AMD
 // 0x800000006 - L2 + TLB
 
-union {
+typedef union {
   struct ebx6x_amd {
     unsigned inst_count: 12;
     unsigned inst_assoc: 4;
@@ -231,7 +245,7 @@ union {
   uint32_t ebx;
 } ebx6x;
 
-union {
+typedef union {
   struct {
     unsigned line_size: 8;
     unsigned : 4;
