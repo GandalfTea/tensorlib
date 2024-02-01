@@ -234,17 +234,32 @@ uint32_t* amd_l1_cpuid() {
 
 // AMD
 // 0x800000006 - L2 + TLB
+// Associativity table pg622 https://www.amd.com/content/dam/amd/en/documents/processor-tech-docs/programmer-references/24594.pdf
 
+
+// L2 TLB 2M/4M
 typedef union {
-  struct ebx6x_amd {
+  struct {
+    unsigned inst_count: 12; // L2 instruction TLB number of entriees for 2M-4M
+    unsigned inst_assoc: 4;  // L2 instruction TLB associativity
+    unsigned data_count: 12; // L2 data TLB number of entries
+    unsigned data_assoc: 4;  // L2 data TLB associativity
+  } bits;
+  uint32_t eax;
+} eax6x;
+
+// L2 TLB 4K
+typedef union {
+  struct {
     unsigned inst_count: 12;
     unsigned inst_assoc: 4;
     unsigned data_count: 12;
     unsigned data_assoc: 4;
-  };
+  } bits;
   uint32_t ebx;
 } ebx6x;
 
+// L2
 typedef union {
   struct {
     unsigned line_size: 8;
@@ -261,7 +276,19 @@ typedef union {
   uint32_t ecx;
 } ecx6x;
 
-uint32_t* amd_cache_tlb() {
+// L3
+typedef union {
+  struct {
+    unsigned line_size: 8;
+    unsigned lines_per_tag: 4;
+    unsigned associativity: 4;
+    unsigned cache_size: 16;
+  } bits;
+  uint32_t edx;
+} edx6x;
+
+// L2 and L3 cache + TLB
+uint32_t* amd_cache_cpuid() {
   uint32_t* ret = new uint32_t[4];
   ret[0] == 0x0;
   _cpuid(0x80000006, ret[0], ret[1], ret[2], ret[3]);
