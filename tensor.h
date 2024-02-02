@@ -4,7 +4,9 @@
 #define TENSOR_MAX_DIM (2 << 15)
 #define TENSOR_MAX_STORAGE_SIZE UINT_MAX 
 #define DEBUG 3
-#define AVX_CPU_GEMMS
+#if defined(__AVX__) && defined(__FMA__)
+  #define AVX_CPU_GEMMS
+#endif
 
 
 #include <string>
@@ -571,11 +573,13 @@ class Tensor {
     }
 
     // auto a = Tensor<>::get_processor_information();
+#ifdef AVX_CPU_GEMMS
     static uint32_t get_cpu_info( uint32_t op ) {
       uint32_t eax, ebx, ecx, edx; 
       _cpuid(op, eax, ebx, ecx, edx);
       return eax;
     }
+#endif
 
 		public: 
 
