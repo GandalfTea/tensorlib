@@ -4,6 +4,7 @@
 #define TENSOR_MAX_DIM (2 << 15)
 #define TENSOR_MAX_STORAGE_SIZE UINT_MAX 
 #define DEBUG 3
+#define AVX_CPU_GEMMS
 
 
 #include <string>
@@ -15,6 +16,10 @@
 #include <stdexcept>
 #include <typeinfo> // Only used in std::cout repr
 #include <initializer_list>
+
+#ifdef AVX_CPU_GEMMS
+  #include "cpu_gemms.h"
+#endif
 using std::size_t;
 
 // CPUID
@@ -44,26 +49,6 @@ std::string bytes_to_str(size_t size) {
   else return std::to_string(size)+" B";
 }
 #endif
-
-// CPUID HELPERS
-void _cpuid(uint32_t op, uint32_t& eax, uint32_t& ebx, uint32_t& ecx, uint32_t& edx) {
-#ifdef _WIN32 // microsoft is baka and doesn't support asm
-  __cpuid((int*)regs, (int)i);
-#else
-  asm volatile (
-    "cpuid" 
-    : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
-    : "a"(op)
-    : "cc" );
-#endif
-}
-
-uint32_t cpuid_highest_leaf() {
-  uint32_t eax, ebx, ecx, edx;
-  _cpuid(0, eax, ebx, ecx, edx);
-  return eax;
-}
-
 
 namespace tensor {
 
@@ -560,7 +545,7 @@ class Tensor {
 		}
 
     // naive mul for now 
-    template< uint32_t rows, uint32_t cols, uint32_t in>
+    template<uint32_t rows, uint32_t cols, uint32_t in>
     static Tensor<T> dot(Tensor<T> &lhs, Tensor<T> &rhs, dot_op=AUTO_OP, arch=AUTO_ARCH) {
       if(lhs.ndim() == 2 && rhs.ndim() == 2) {
         sized_array<uint32_t> s {std::unique_ptr<uint32_t[]>(new uint32_t[2]), 2};
@@ -570,33 +555,21 @@ class Tensor {
         Tensor<T> ret = Tensor<T>(data, s.ptr[0]*s.ptr[1], s);
 
         auto start = std::chrono::high_resolution_clock::now();
-        lhs.gemm< rows, cols, in>(lhs.data().get(), rhs.data().get(), ret.data().get());
+#ifdef AVX_CPU_GEMMS
+        _m256_gemm<256, 256, rows, cols, in>(lhs.data().get(), rhs.data().get(), ret.data().get());
+#else
+        lhs.tgemm<64, 16, rows, cols, in>(lhs.data().get(), rhs.data().get(), ret.data().get());
+#endif
+        //lhs.tgemm<64, rows, cols, in>(lhs.data().get(), rhs.data().get(), ret.data().get());
         auto end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double, std::milli> ms_double = end - start;
-				std::cout << "<sgemm GFLOPS=" << (2*rows*cols*in)/1e9 << " runtime=" << (float)ms_double.count() << "ms  ";
-				std::cout << ((long double)(2*rows*cols*in)/(ms_double.count()/1000))/1e9 << " GFLOPS/s LOAD=" << 
+				std::cout << "<sgemm GFLOP=" << ((long)2*rows*cols*in)/1e9 << " runtime=" << (float)ms_double.count() << "ms  ";
+				std::cout << ((long double)((long)2*rows*cols*in)/(ms_double.count()/1000))/1e9 << " GFLOPS load=" << 
 								     bytes_to_str((rows*in+in*cols)*sizeof(float)) << ">" << std::endl;
         return ret;
       }
     }
 
-/*
-    struct {
-      unsigned vendor_id: 12;
-      unsigned model_id: 4;
-      unsigned family_id: 4;
-      unsigned extended_model: 4;
-      unsigned extended_family: 4;
-      
-      unsigned status: 1; 
-    } cpuid_bits;
-
-    typedef union {
-      cpuid_bits bits;
-      uint64_t w;
-    } cpuid1_e;
-
-*/
     // auto a = Tensor<>::get_processor_information();
     static uint32_t get_cpu_info( uint32_t op ) {
       uint32_t eax, ebx, ecx, edx; 
@@ -775,31 +748,14 @@ class Tensor {
       }
     }
 
-
-    /*
-    template<uint32_t block, uint32_t rows, uint32_t columns, uint32_t inner>
-    inline void m256bgemm(float* const rows, float* const columns, float* const out) {
-
-      for(size_t rb=0; rb<rows; rb++) {
-        for(size_t ib=0; ib<inner; ib++) {
-          __m256 tc[block];
-          for(size_t cb=0; cb<columns; cb++) {
-            
-          }
-        }
-      }
-      _mm256_fmadd_ps()
-    }
-*/
-
-    template<int block, int rows, int columns, int inner>
+    template<int block, int tile, int rows, int columns, int inner>
     inline void tgemm(const float* lhs, const float* rhs, float* out) {
-      #pragma omp parallel for shared(out, lhs, rhs) default(none) collapse(2) num_threads(24)
+      #pragma omp parallel for shared(out, lhs, rhs) default(none) collapse(4) num_threads(24)
       for(size_t row_tile=0; row_tile < rows; row_tile += block) {
         for(size_t column_tile=0; column_tile < columns; column_tile += block) {
-          for(size_t inner_tile=0; inner_tile < inner; inner_tile += block) {
+          for(size_t inner_tile=0; inner_tile < inner; inner_tile += tile) {
             for(size_t row=row_tile; row < row_tile+block; row++) {
-              int i_tile_end = std::min<float>(inner, inner_tile+block);
+              int i_tile_end = std::min<float>(inner, inner_tile+tile);
               for(size_t in=inner_tile; in<i_tile_end; in++) {
                 for(size_t col=column_tile; col<column_tile+block; col++) {
                   out[row*columns+col] += lhs[row*inner+in] * rhs[in*columns+col];
