@@ -509,19 +509,6 @@ inline void _8x8_m256_gemm(int k, const float* a, int lda, const float* b, int l
         b_p0_vreg, b_p1_vreg, b_p2_vreg, b_p3_vreg,
         b_p4_vreg, b_p5_vreg, b_p6_vreg, b_p7_vreg;
 
-  // pointers to the 8 column values of rhs
-  const float *b_p0_pntr, *b_p1_pntr, *b_p2_pntr, *b_p3_pntr,
-              *b_p4_pntr, *b_p5_pntr, *b_p6_pntr, *b_p7_pntr;
-
-  b_p0_pntr = &b[0];
-  b_p1_pntr = &b[1*ldc+0];
-  b_p2_pntr = &b[2*ldc+0];
-  b_p3_pntr = &b[3*ldc+0];
-  b_p4_pntr = &b[4*ldc+0];
-  b_p5_pntr = &b[5*ldc+0];
-  b_p6_pntr = &b[6*ldc+0];
-  b_p7_pntr = &b[7*ldc+0];
-
   c_0007_vreg.v =  _mm256_setzero_ps();
   c_1017_vreg.v =  _mm256_setzero_ps();
   c_2027_vreg.v =  _mm256_setzero_ps();
@@ -532,25 +519,42 @@ inline void _8x8_m256_gemm(int k, const float* a, int lda, const float* b, int l
   c_7077_vreg.v =  _mm256_setzero_ps();
 
   for(p=0; p<k; p++) {
-    a_vreg.v = _mm256_load_ps( (float*) &a[(p*lda)+0] );
 
-    b_p0_vreg.v = _mm256_broadcast_ss( (float*) b_p0_pntr++ ); // load and broadcast  
-    b_p1_vreg.v = _mm256_broadcast_ss( (float*) b_p1_pntr++ ); 
-    b_p2_vreg.v = _mm256_broadcast_ss( (float*) b_p2_pntr++ ); 
-    b_p3_vreg.v = _mm256_broadcast_ss( (float*) b_p3_pntr++ );
-    b_p4_vreg.v = _mm256_broadcast_ss( (float*) b_p4_pntr++ ); 
-    b_p5_vreg.v = _mm256_broadcast_ss( (float*) b_p5_pntr++ ); 
-    b_p6_vreg.v = _mm256_broadcast_ss( (float*) b_p6_pntr++ ); 
-    b_p7_vreg.v = _mm256_broadcast_ss( (float*) b_p7_pntr++ );
+    __builtin_prefetch((a+8));
+    __builtin_prefetch((b+8));
 
-    c_0007_vreg.v += a_vreg.v * b_p0_vreg.v;
-    c_1017_vreg.v += a_vreg.v * b_p1_vreg.v;
-    c_2027_vreg.v += a_vreg.v * b_p2_vreg.v;
-    c_3037_vreg.v += a_vreg.v * b_p3_vreg.v;
-    c_4047_vreg.v += a_vreg.v * b_p4_vreg.v;
-    c_5057_vreg.v += a_vreg.v * b_p5_vreg.v;
-    c_6067_vreg.v += a_vreg.v * b_p6_vreg.v;
-    c_7077_vreg.v += a_vreg.v * b_p7_vreg.v;
+    a_vreg.v = _mm256_load_ps( (float*)a );
+    b_p0_vreg.v = _mm256_load_ps( (float*)b );
+    a += 8;
+    b += 8;
+
+/*
+    b_p0_vreg.v = _mm256_broadcast_ss( (float*) b ); // load and broadcast  
+    b_p1_vreg.v = _mm256_broadcast_ss( (float*) (b+1) ); 
+    b_p2_vreg.v = _mm256_broadcast_ss( (float*) (b+2) ); 
+    b_p3_vreg.v = _mm256_broadcast_ss( (float*) (b+3) );
+    b_p4_vreg.v = _mm256_broadcast_ss( (float*) (b+4) ); 
+    b_p5_vreg.v = _mm256_broadcast_ss( (float*) (b+5) ); 
+    b_p6_vreg.v = _mm256_broadcast_ss( (float*) (b+6) ); 
+    b_p7_vreg.v = _mm256_broadcast_ss( (float*) (b+7) );
+
+    c_0007_vreg.v   = _mm256_fmadd_ps(a_1_vreg.v, b_p0_vreg.v, c_0007_vreg.v);
+    c_1017_vreg.v   = _mm256_fmadd_ps(a_1_vreg.v, b_p1_vreg.v, c_1017_vreg.v);
+    c_2027_vreg.v   = _mm256_fmadd_ps(a_1_vreg.v, b_p2_vreg.v, c_2027_vreg.v);
+    c_3037_vreg.v   = _mm256_fmadd_ps(a_1_vreg.v, b_p3_vreg.v, c_3037_vreg.v);
+    c_4047_vreg.v   = _mm256_fmadd_ps(a_1_vreg.v, b_p4_vreg.v, c_4047_vreg.v);
+    c_5057_vreg.v   = _mm256_fmadd_ps(a_1_vreg.v, b_p5_vreg.v, c_5057_vreg.v);
+    c_6067_vreg.v   = _mm256_fmadd_ps(a_1_vreg.v, b_p6_vreg.v, c_6067_vreg.v);
+    c_7077_vreg.v   = _mm256_fmadd_ps(a_1_vreg.v, b_p7_vreg.v, c_7077_vreg.v);
+*/
+    c_0007_vreg.v += a_vreg.v * b_p0_vreg.f[0];
+    c_1017_vreg.v += a_vreg.v * b_p0_vreg.f[1];
+    c_2027_vreg.v += a_vreg.v * b_p0_vreg.f[2];
+    c_3037_vreg.v += a_vreg.v * b_p0_vreg.f[3];
+    c_4047_vreg.v += a_vreg.v * b_p0_vreg.f[4];
+    c_5057_vreg.v += a_vreg.v * b_p0_vreg.f[5];
+    c_6067_vreg.v += a_vreg.v * b_p0_vreg.f[6];
+    c_7077_vreg.v += a_vreg.v * b_p0_vreg.f[7];
   }
 
   c[(0*ldc)+0] += c_0007_vreg.f[0]; c[(1*ldc)+0] += c_1017_vreg.f[0]; 
@@ -594,73 +598,144 @@ inline void _8x8_m256_gemm(int k, const float* a, int lda, const float* b, int l
   c[(6*ldc)+7] += c_6067_vreg.f[7]; c[(7*ldc)+7] += c_7077_vreg.f[7]; 
 }
 
-inline void _8x4_m256_gemm(int k, const float* a, int lda, const float* b, int ldb, float* c, int ldc) {
+inline void _16x16_m256_gemm(int k, const float* a, int lda, const float* b, int ldb, float* c, int ldc) {
   int p;
   v2f_t c_0007_vreg, c_1017_vreg, c_2027_vreg, c_3037_vreg,
-        a_vreg,
-        b_p0_vreg, b_p1_vreg, b_p2_vreg, b_p3_vreg,
-        b_p4_vreg, b_p5_vreg, b_p6_vreg, b_p7_vreg;
-
-  // pointers to the 8 column values of rhs
-  const float *b_p0_pntr, *b_p1_pntr, *b_p2_pntr, *b_p3_pntr,
-              *b_p4_pntr, *b_p5_pntr, *b_p6_pntr, *b_p7_pntr;
-
-  b_p0_pntr = &b[0];
-  b_p1_pntr = &b[1*ldc+0];
-  b_p2_pntr = &b[2*ldc+0];
-  b_p3_pntr = &b[3*ldc+0];
-  b_p4_pntr = &b[4*ldc+0];
-  b_p5_pntr = &b[5*ldc+0];
-  b_p6_pntr = &b[6*ldc+0];
-  b_p7_pntr = &b[7*ldc+0];
+        c_4047_vreg, c_5057_vreg, c_6067_vreg, c_7077_vreg,
+        c_8087_vreg, c_9097_vreg, c_100107_vreg, c_110117_vreg,
+        c_120127_vreg, c_130137_vreg, c_140147_vreg, c_150157_vreg,
+        a_1_vreg, a_2_vreg,
+        b_p0_vreg, b_p1_vreg;
 
   c_0007_vreg.v =  _mm256_setzero_ps();
   c_1017_vreg.v =  _mm256_setzero_ps();
   c_2027_vreg.v =  _mm256_setzero_ps();
   c_3037_vreg.v =  _mm256_setzero_ps();
+  c_4047_vreg.v =  _mm256_setzero_ps();
+  c_5057_vreg.v =  _mm256_setzero_ps();
+  c_6067_vreg.v =  _mm256_setzero_ps();
+  c_7077_vreg.v =  _mm256_setzero_ps();
+  c_8087_vreg.v =  _mm256_setzero_ps();
+  c_9097_vreg.v =  _mm256_setzero_ps();
+  c_100107_vreg.v =  _mm256_setzero_ps();
+  c_110117_vreg.v =  _mm256_setzero_ps();
+  c_120127_vreg.v =  _mm256_setzero_ps();
+  c_130137_vreg.v =  _mm256_setzero_ps();
+  c_140147_vreg.v =  _mm256_setzero_ps();
+  c_150157_vreg.v =  _mm256_setzero_ps();
 
   for(p=0; p<k; p++) {
-    a_vreg.v = _mm256_load_ps( (float*) &a[(p*lda)+0] );
+    __builtin_prefetch(a+16);
+    __builtin_prefetch(b+16);
 
-    b_p0_vreg.v = _mm256_broadcast_ss( (float*) b_p0_pntr++ ); // load and broadcast  
-    b_p1_vreg.v = _mm256_broadcast_ss( (float*) b_p1_pntr++ ); 
-    b_p2_vreg.v = _mm256_broadcast_ss( (float*) b_p2_pntr++ ); 
-    b_p3_vreg.v = _mm256_broadcast_ss( (float*) b_p3_pntr++ );
-    b_p4_vreg.v = _mm256_broadcast_ss( (float*) b_p4_pntr++ ); 
-    b_p5_vreg.v = _mm256_broadcast_ss( (float*) b_p5_pntr++ ); 
-    b_p6_vreg.v = _mm256_broadcast_ss( (float*) b_p6_pntr++ ); 
-    b_p7_vreg.v = _mm256_broadcast_ss( (float*) b_p7_pntr++ );
+    a_1_vreg.v = _mm256_load_ps( (float*) a );
+    a_2_vreg.v = _mm256_load_ps( (float*) (a+8) );
+    a += 16;
 
-    c_0007_vreg.v += a_vreg.v * b_p0_vreg.v;
-    c_1017_vreg.v += a_vreg.v * b_p1_vreg.v;
-    c_2027_vreg.v += a_vreg.v * b_p2_vreg.v;
-    c_3037_vreg.v += a_vreg.v * b_p3_vreg.v;
+    b_p0_vreg.v = _mm256_load_ps( (float*) b);
+    b_p1_vreg.v = _mm256_load_ps( (float*) (b+8));
+    b += 16;
+
+    c_0007_vreg.v += a_1_vreg.v * b_p0_vreg.f[0];
+    c_1017_vreg.v += a_1_vreg.v * b_p0_vreg.f[1];
+    c_2027_vreg.v += a_1_vreg.v * b_p0_vreg.f[2];
+    c_3037_vreg.v += a_1_vreg.v * b_p0_vreg.f[3];
+    c_4047_vreg.v += a_1_vreg.v * b_p0_vreg.f[4];
+    c_5057_vreg.v += a_1_vreg.v * b_p0_vreg.f[5];
+    c_6067_vreg.v += a_1_vreg.v * b_p0_vreg.f[6];
+    c_7077_vreg.v += a_1_vreg.v * b_p0_vreg.f[7];
+
+    c_8087_vreg.v   += a_2_vreg.v * b_p1_vreg.f[0];
+    c_9097_vreg.v   += a_2_vreg.v * b_p1_vreg.f[1];
+    c_100107_vreg.v += a_2_vreg.v * b_p1_vreg.f[2];
+    c_110117_vreg.v += a_2_vreg.v * b_p1_vreg.f[3];
+    c_120127_vreg.v += a_2_vreg.v * b_p1_vreg.f[4];
+    c_130137_vreg.v += a_2_vreg.v * b_p1_vreg.f[5];
+    c_140147_vreg.v += a_2_vreg.v * b_p1_vreg.f[6];
+    c_150157_vreg.v += a_2_vreg.v * b_p1_vreg.f[7];
   }
 
   c[(0*ldc)+0] += c_0007_vreg.f[0]; c[(1*ldc)+0] += c_1017_vreg.f[0]; 
   c[(2*ldc)+0] += c_2027_vreg.f[0]; c[(3*ldc)+0] += c_3037_vreg.f[0]; 
+  c[(4*ldc)+0] += c_4047_vreg.f[0]; c[(5*ldc)+0] += c_5057_vreg.f[0]; 
+  c[(6*ldc)+0] += c_6067_vreg.f[0]; c[(7*ldc)+0] += c_7077_vreg.f[0]; 
 
-  c[(4*ldc)+0] += c_0007_vreg.f[1]; c[(5*ldc)+0] += c_1017_vreg.f[1]; 
-  c[(6*ldc)+0] += c_2027_vreg.f[1]; c[(7*ldc)+0] += c_3037_vreg.f[1]; 
+  c[(0*ldc)+1] += c_0007_vreg.f[1]; c[(1*ldc)+1] += c_1017_vreg.f[1]; 
+  c[(2*ldc)+1] += c_2027_vreg.f[1]; c[(3*ldc)+1] += c_3037_vreg.f[1]; 
+  c[(4*ldc)+1] += c_4047_vreg.f[1]; c[(5*ldc)+1] += c_5057_vreg.f[1]; 
+  c[(6*ldc)+1] += c_6067_vreg.f[1]; c[(7*ldc)+1] += c_7077_vreg.f[1]; 
 
-  c[(0*ldc)+1] += c_0007_vreg.f[2]; c[(1*ldc)+1] += c_1017_vreg.f[2]; 
-  c[(2*ldc)+1] += c_2027_vreg.f[2]; c[(3*ldc)+1] += c_3037_vreg.f[2]; 
+  c[(0*ldc)+2] += c_0007_vreg.f[2]; c[(1*ldc)+2] += c_1017_vreg.f[2]; 
+  c[(2*ldc)+2] += c_2027_vreg.f[2]; c[(3*ldc)+2] += c_3037_vreg.f[2]; 
+  c[(4*ldc)+2] += c_4047_vreg.f[2]; c[(5*ldc)+2] += c_5057_vreg.f[2]; 
+  c[(6*ldc)+2] += c_6067_vreg.f[2]; c[(7*ldc)+2] += c_7077_vreg.f[2]; 
 
-  c[(4*ldc)+1] += c_0007_vreg.f[3]; c[(5*ldc)+1] += c_1017_vreg.f[3]; 
-  c[(6*ldc)+1] += c_2027_vreg.f[3]; c[(7*ldc)+1] += c_3037_vreg.f[3]; 
+  c[(0*ldc)+3] += c_0007_vreg.f[3]; c[(1*ldc)+3] += c_1017_vreg.f[3]; 
+  c[(2*ldc)+3] += c_2027_vreg.f[3]; c[(3*ldc)+3] += c_3037_vreg.f[3]; 
+  c[(4*ldc)+3] += c_4047_vreg.f[3]; c[(5*ldc)+3] += c_5057_vreg.f[3]; 
+  c[(6*ldc)+3] += c_6067_vreg.f[3]; c[(7*ldc)+3] += c_7077_vreg.f[3]; 
 
-  c[(0*ldc)+2] += c_0007_vreg.f[4]; c[(1*ldc)+2] += c_1017_vreg.f[4]; 
-  c[(2*ldc)+2] += c_2027_vreg.f[4]; c[(3*ldc)+2] += c_3037_vreg.f[4]; 
+  c[(0*ldc)+4] += c_0007_vreg.f[4]; c[(1*ldc)+4] += c_1017_vreg.f[4]; 
+  c[(2*ldc)+4] += c_2027_vreg.f[4]; c[(3*ldc)+4] += c_3037_vreg.f[4]; 
+  c[(4*ldc)+4] += c_4047_vreg.f[4]; c[(5*ldc)+4] += c_5057_vreg.f[4]; 
+  c[(6*ldc)+4] += c_6067_vreg.f[4]; c[(7*ldc)+4] += c_7077_vreg.f[4]; 
 
-  c[(4*ldc)+2] += c_0007_vreg.f[5]; c[(5*ldc)+2] += c_1017_vreg.f[5]; 
-  c[(6*ldc)+2] += c_2027_vreg.f[5]; c[(7*ldc)+2] += c_3037_vreg.f[5]; 
+  c[(0*ldc)+5] += c_0007_vreg.f[5]; c[(1*ldc)+5] += c_1017_vreg.f[5]; 
+  c[(2*ldc)+5] += c_2027_vreg.f[5]; c[(3*ldc)+5] += c_3037_vreg.f[5]; 
+  c[(4*ldc)+5] += c_4047_vreg.f[5]; c[(5*ldc)+5] += c_5057_vreg.f[5]; 
+  c[(6*ldc)+5] += c_6067_vreg.f[5]; c[(7*ldc)+5] += c_7077_vreg.f[5]; 
 
-  c[(0*ldc)+3] += c_0007_vreg.f[6]; c[(1*ldc)+3] += c_1017_vreg.f[6]; 
-  c[(2*ldc)+3] += c_2027_vreg.f[6]; c[(3*ldc)+3] += c_3037_vreg.f[6]; 
+  c[(0*ldc)+6] += c_0007_vreg.f[6]; c[(1*ldc)+6] += c_1017_vreg.f[6]; 
+  c[(2*ldc)+6] += c_2027_vreg.f[6]; c[(3*ldc)+6] += c_3037_vreg.f[6]; 
+  c[(4*ldc)+6] += c_4047_vreg.f[6]; c[(5*ldc)+6] += c_5057_vreg.f[6]; 
+  c[(6*ldc)+6] += c_6067_vreg.f[6]; c[(7*ldc)+6] += c_7077_vreg.f[6]; 
 
-  c[(4*ldc)+3] += c_0007_vreg.f[7]; c[(5*ldc)+3] += c_1017_vreg.f[7]; 
-  c[(6*ldc)+3] += c_2027_vreg.f[7]; c[(7*ldc)+3] += c_3037_vreg.f[7]; 
+  c[(0*ldc)+7] += c_0007_vreg.f[7]; c[(1*ldc)+7] += c_1017_vreg.f[7]; 
+  c[(2*ldc)+7] += c_2027_vreg.f[7]; c[(3*ldc)+7] += c_3037_vreg.f[7]; 
+  c[(4*ldc)+7] += c_4047_vreg.f[7]; c[(5*ldc)+7] += c_5057_vreg.f[7]; 
+  c[(6*ldc)+7] += c_6067_vreg.f[7]; c[(7*ldc)+7] += c_7077_vreg.f[7]; 
+
+  c[(8*ldc)+0] += c_8087_vreg.f[0]; c[(9*ldc)+0] += c_9097_vreg.f[0]; 
+  c[(10*ldc)+0] += c_100107_vreg.f[0]; c[(11*ldc)+0] += c_110117_vreg.f[0]; 
+  c[(12*ldc)+0] += c_120127_vreg.f[0]; c[(13*ldc)+0] += c_130137_vreg.f[0]; 
+  c[(14*ldc)+0] += c_140147_vreg.f[0]; c[(15*ldc)+0] += c_150157_vreg.f[0]; 
+
+  c[(8*ldc)+1] += c_8087_vreg.f[1]; c[(9*ldc)+1] += c_9097_vreg.f[1]; 
+  c[(10*ldc)+1] += c_100107_vreg.f[1]; c[(11*ldc)+1] += c_110117_vreg.f[1]; 
+  c[(12*ldc)+1] += c_120127_vreg.f[1]; c[(13*ldc)+1] += c_130137_vreg.f[1]; 
+  c[(14*ldc)+1] += c_140147_vreg.f[1]; c[(15*ldc)+1] += c_150157_vreg.f[1]; 
+
+  c[(8*ldc)+2] += c_8087_vreg.f[2]; c[(9*ldc)+2] += c_9097_vreg.f[2]; 
+  c[(10*ldc)+2] += c_100107_vreg.f[2]; c[(11*ldc)+2] += c_110117_vreg.f[2]; 
+  c[(12*ldc)+2] += c_120127_vreg.f[2]; c[(13*ldc)+2] += c_130137_vreg.f[2]; 
+  c[(14*ldc)+2] += c_140147_vreg.f[2]; c[(15*ldc)+2] += c_150157_vreg.f[2]; 
+
+  c[(8*ldc)+3] += c_8087_vreg.f[3]; c[(9*ldc)+3] += c_9097_vreg.f[3]; 
+  c[(10*ldc)+3] += c_100107_vreg.f[3]; c[(11*ldc)+3] += c_110117_vreg.f[3]; 
+  c[(12*ldc)+3] += c_120127_vreg.f[3]; c[(13*ldc)+3] += c_130137_vreg.f[3]; 
+  c[(14*ldc)+3] += c_140147_vreg.f[3]; c[(15*ldc)+3] += c_150157_vreg.f[3]; 
+
+  c[(8*ldc)+4] += c_8087_vreg.f[4]; c[(9*ldc)+4] += c_9097_vreg.f[4]; 
+  c[(10*ldc)+4] += c_100107_vreg.f[4]; c[(11*ldc)+4] += c_110117_vreg.f[4]; 
+  c[(12*ldc)+4] += c_120127_vreg.f[4]; c[(13*ldc)+4] += c_130137_vreg.f[4]; 
+  c[(14*ldc)+4] += c_140147_vreg.f[4]; c[(15*ldc)+4] += c_150157_vreg.f[4]; 
+
+  c[(8*ldc)+5] += c_8087_vreg.f[5]; c[(9*ldc)+5] += c_9097_vreg.f[5]; 
+  c[(10*ldc)+5] += c_100107_vreg.f[5]; c[(11*ldc)+5] += c_110117_vreg.f[5]; 
+  c[(12*ldc)+5] += c_120127_vreg.f[5]; c[(13*ldc)+5] += c_130137_vreg.f[5]; 
+  c[(14*ldc)+5] += c_140147_vreg.f[5]; c[(15*ldc)+5] += c_150157_vreg.f[5]; 
+
+  c[(8*ldc)+6] += c_8087_vreg.f[6]; c[(9*ldc)+6] += c_9097_vreg.f[6]; 
+  c[(10*ldc)+6] += c_100107_vreg.f[6]; c[(11*ldc)+6] += c_110117_vreg.f[6]; 
+  c[(12*ldc)+6] += c_120127_vreg.f[6]; c[(13*ldc)+6] += c_130137_vreg.f[6]; 
+  c[(14*ldc)+6] += c_140147_vreg.f[6]; c[(15*ldc)+6] += c_150157_vreg.f[6]; 
+
+  c[(8*ldc)+7] += c_8087_vreg.f[7]; c[(9*ldc)+7] += c_9097_vreg.f[7]; 
+  c[(10*ldc)+7] += c_100107_vreg.f[7]; c[(11*ldc)+7] += c_110117_vreg.f[7]; 
+  c[(12*ldc)+7] += c_120127_vreg.f[7]; c[(13*ldc)+7] += c_130137_vreg.f[7]; 
+  c[(14*ldc)+7] += c_140147_vreg.f[7]; c[(15*ldc)+7] += c_150157_vreg.f[7]; 
 }
+
 
 void pack_a(int k, const float* a, int lda, float* to) {
   int j;
@@ -699,8 +774,8 @@ inline void _inner_m256gemm(int m, int n, int k, const float* lhs, int la, const
     if(first) pack_b(k, &rhs[(j*lb)], lb, &pb[j*k]);
     for(i=0; i<m; i+=8) { 
       if(j==0) pack_a(k, &lhs[i], la, &pa[i*k]);
-      //_8x8_m256_gemm(k, &lhs[i], 8, &rhs[j*m+0], m, &result[j*n+i], n); 
-      _8x4_m256_gemm(k, &pa[i*k], 8, &pb[j*k], k, &result[j*n+i], lc); 
+      //_16x16_m256_gemm(k, &pa[i*k], 16, &pb[j*k], k, &result[j*n+i], lc); 
+      _8x8_m256_gemm(k, &pa[i*k], 8, &pb[j*k], k, &result[j*n+i], lc); 
     }
   }
 }
