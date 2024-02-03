@@ -558,7 +558,7 @@ class Tensor {
 
         auto start = std::chrono::high_resolution_clock::now();
 #ifdef AVX_CPU_GEMMS
-        _m256_gemm<256, 256, rows, cols, in>(lhs.data().get(), rhs.data().get(), ret.data().get());
+        _m256_gemm<128, 128, rows, cols, in>(lhs.data().get(), rhs.data().get(), ret.data().get());
 #else
         lhs.tgemm<64, 16, rows, cols, in>(lhs.data().get(), rhs.data().get(), ret.data().get());
 #endif
