@@ -536,7 +536,7 @@ class Tensor {
 
     // naive mul for now 
     template<uint32_t rows, uint32_t cols, uint32_t in>
-    static Tensor<T> dot(Tensor<T> &lhs, Tensor<T> &rhs, dot_op=AUTO_OP, arch=AUTO_ARCH) {
+    static Tensor<T> dot(Tensor<T> &lhs, Tensor<T> &rhs) {
       if(lhs.ndim() == 2 && rhs.ndim() == 2) {
         sized_array<uint32_t> s {std::unique_ptr<uint32_t[]>(new uint32_t[2]), 2};
         s.ptr[0] = rows;
