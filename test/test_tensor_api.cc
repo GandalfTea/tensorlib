@@ -201,12 +201,14 @@ TEST_CASE("Tensor OPs", "[core]") {
 
 		SECTION("Correct") {
 			CHECK_NOTHROW(a.expand({N, 5}));
-			std::initializer_list<uint32_t> tsp = {N, 5};
-			std::initializer_list<uint32_t> tst = {1, 0};
+			std::initializer_list<int32_t> tsp = {N, 5};
+			std::initializer_list<int32_t> tst = {1, 0};
 			i=0;
 			for(const auto& x : tsp) { CHECK(a.view()[i++] == x); }
+      // 2048, 1
 			i=0;
 			for(auto const& x : tst) { CHECK(a.strides()[i++] == x); }
+      // 1, 1
 
 			CHECK_NOTHROW(a(0, 0));
 			CHECK_NOTHROW(a(0, 1));
@@ -221,8 +223,8 @@ TEST_CASE("Tensor OPs", "[core]") {
 
 		SECTION("Expansion on non-1 dimension") {
 			a.reshape({N/2, 2});
-			std::initializer_list<uint32_t> tsp = {N/2, 2};
-			std::initializer_list<uint32_t> tst = {2, 1};
+			std::initializer_list<int32_t> tsp = {N/2, 2};
+			std::initializer_list<int32_t> tst = {2, 1};
 			CHECK_THROWS(a.expand({N/2, 5}));
 			i=0;
 			for(const auto& x : tsp) { CHECK(a.view()[i] == x); i++; }
@@ -230,6 +232,7 @@ TEST_CASE("Tensor OPs", "[core]") {
 			for(auto const& x : tst) { CHECK(a.strides()[i] == x); i++; }
 		}
 
+    a.strip();
 		a.reshape({N, 1});
 
 		SECTION("Wrong argument for other dimensions") {
