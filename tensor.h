@@ -1,40 +1,21 @@
 #ifndef TENSOR
 #define TENSOR
 
+#include <limits.h>
 #define TENSOR_MAX_DIM (2 << 15)
 #define TENSOR_MAX_STORAGE_SIZE UINT_MAX 
-#define DEBUG 3
-#if defined(__AVX__) && defined(__FMA__)
+
+#if defined(__AVX__) && (defined(__FMA__) || defined(__FMA4__))
   #define AVX_CPU_GEMMS
-#endif
-
-
-#include <string>
-#include <memory>
-#include <cmath>
-#include <random>
-#include <stdlib.h>
-#include <limits.h>
-#include <stdexcept>
-#include <typeinfo> // Only used in std::cout repr
-#include <initializer_list>
-
-#ifdef AVX_CPU_GEMMS
   #include "cpu_gemms.h"
 #endif
-using std::size_t;
 
-// CPUID
-#ifdef _WIN32
-  #include <intrin.h>
-#else 
-  #include <stdint.h>
-#endif
-
+#define DEBUG 3
 #if DEBUG > 2
 #include <omp.h>
 #include <iomanip>
 #include <iostream>
+#include <typeinfo> 
 #include <chrono>
 template<typename T>
 std::string to_string_with_precision(const T val, const uint32_t n=6) {
@@ -52,23 +33,20 @@ std::string bytes_to_str(size_t size) {
 }
 #endif
 
+#include <string>
+#include <memory>
+#include <cmath>
+#include <random>
+#include <stdlib.h>
+#include <stdexcept>
+#include <initializer_list>
+
+using std::size_t;
+
+
+// TODO: Rename to tensorlib
 namespace tensor {
 
-// For gemms
-typedef enum {
-  AUTO_OP,
-  GEMM,
-  GTC
-} dot_op;
-
-typedef enum {
-  AUTO_ARCH,
-  CUDA,
-  IVY_LAKE,
-  ZEN,
-} arch;
-
-// err handling
 typedef enum {
 	SUCCESSFUL,
 	INVALID_ARGUMENTS,
@@ -88,12 +66,15 @@ typedef enum {
 	PAD
 } MovementOPs;
 
-
 template<typename T>
 struct sized_array {
 	std::shared_ptr<T[]> ptr = nullptr;
 	size_t size = 0;
 };
+
+
+// VIEW
+/*-------------------------------------------------------------------------------------------------------*/
 
 struct View {
 	std::shared_ptr<uint32_t[]> view = nullptr;
@@ -134,7 +115,9 @@ struct View {
 		this->restride();
 	}
 
-	// No changes are made if movement OPs fail.
+  // MOVEMENT OPS
+	// NOTE: No changes are made if movement OPs fail.
+/*-------------------------------------------------*/
 	
 	// NOTE: Allows for one inferred dim
   // NOTE: Because array is signed int, dimension number is half
@@ -267,6 +250,10 @@ struct View {
 	op_ret flip(std::shared_ptr<uint32_t[]> &argview, size_t &len) { return NOT_IMPLEMENTED; }
 	op_ret pad(std::shared_ptr<uint32_t[]> &argview, size_t &len) { return NOT_IMPLEMENTED; }
 
+
+  // VARIABLES
+/*-------------------------------------------------*/
+
 	uint32_t ndim()  { return this->numdim; }
 	uint64_t numel() { return this->elements; }
   uint64_t disksize() { return this->disklen; }
@@ -285,6 +272,10 @@ struct View {
 		}
 };
 
+
+// TENSOR
+/*-------------------------------------------------------------------------------------------------------*/
+
 typedef enum {
 	GPU,
 	CPU
@@ -295,18 +286,6 @@ typedef enum {
 	NORMAL, 
 	CHI_SQUARED,
 } Distribution;
-
-typedef enum {
-	INVALID_SHAPE_OPERATION,
-	MEMORY_ALLOCATION_FAILURE,
-} TensorError;
-
-class TensorException : public std::exception {
-	public:
-		TensorError err;
-		const char* msg;
-		TensorException(TensorError err, const char* msg) : err(err), msg(msg) {}
-};
 
 template<typename T = float>
 class Tensor {
@@ -369,6 +348,8 @@ class Tensor {
 
 
 		// Constructor helpers
+/*-------------------------------------------------*/
+
 		
 		// auto a = Tensor<>::eye(4096, 4);
 		static Tensor<T> eye(uint32_t size, uint32_t dims=2, Device device=CPU) {
@@ -449,6 +430,7 @@ class Tensor {
 		}
 
 		// Move semantics
+/*-------------------------------------------------*/
 		
 		// Shallow copy
 		// Returns a virtual tensor of same shape and type as rhs, no data.
@@ -472,7 +454,8 @@ class Tensor {
 			for(size_t i=0; i<this->disklen(); i++) this->storage[i] = f(this->storage[i]);
 		}
 
-
+    // Element and sub-tensor selection
+/*-------------------------------------------------*/
 		// TODO: Move no data 
 		template<typename... Args>
 		Tensor<T> operator()(Args... args) {
@@ -524,6 +507,7 @@ class Tensor {
 
 		// Movement OPs
 		// TODO: These might allow for unwanted changes to the data. Maybe clone?
+/*-------------------------------------------------*/
 		
 		bool reshape(std::initializer_list<int32_t> nview) { return this->execute_movement_op(nview, RESHAPE); }
 		bool permute(std::initializer_list<uint32_t> nview) { return this->execute_movement_op(nview, PERMUTE); }
@@ -546,6 +530,10 @@ class Tensor {
 			return ret;
 		}
 
+
+    // SGEMMS
+/*-------------------------------------------------*/
+
     // naive mul for now 
     template<uint32_t rows, uint32_t cols, uint32_t in>
     static Tensor<T> dot(Tensor<T> &lhs, Tensor<T> &rhs, dot_op=AUTO_OP, arch=AUTO_ARCH) {
@@ -556,18 +544,22 @@ class Tensor {
         std::unique_ptr<T[]> data = std::unique_ptr<T[]>(new T[s.ptr[0]*s.ptr[1]]);
         Tensor<T> ret = Tensor<T>(data, s.ptr[0]*s.ptr[1], s);
 
+#if DEBUG
         auto start = std::chrono::high_resolution_clock::now();
+#endif
 #ifdef AVX_CPU_GEMMS
         _m256_gemm<128, 128, rows, cols, in>(lhs.data().get(), rhs.data().get(), ret.data().get());
 #else
         lhs.tgemm<64, 16, rows, cols, in>(lhs.data().get(), rhs.data().get(), ret.data().get());
 #endif
         //lhs.tgemm<64, rows, cols, in>(lhs.data().get(), rhs.data().get(), ret.data().get());
+#if DEBUG
         auto end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double, std::milli> ms_double = end - start;
 				std::cout << "<sgemm GFLOP=" << ((long)2*rows*cols*in)/1e9 << " runtime=" << (float)ms_double.count() << "ms  ";
 				std::cout << ((long double)((long)2*rows*cols*in)/(ms_double.count()/1000))/1e9 << " GFLOPS load=" << 
 								     bytes_to_str((rows*in+in*cols)*sizeof(float)) << ">" << std::endl;
+#endif
         return ret;
       }
     }
@@ -580,7 +572,10 @@ class Tensor {
       return eax;
     }
 #endif
+    
 
+    // Variables and member functions
+/*-------------------------------------------------*/
 		public: 
 
     // TODO: size and numel are the same
@@ -622,6 +617,8 @@ class Tensor {
 
 
 
+    // Random number generators
+/*-------------------------------------------------*/
 
 		// Random number generators
 		static std::unique_ptr<float[]> f32_generate_uniform_distribution(uint32_t count, float up=1.f, float down=0.f, double seed=0, 
@@ -669,6 +666,25 @@ class Tensor {
 			return ret;
 		}
 
+
+    // Memory OPs
+/*-------------------------------------------------*/
+
+    // NOTE: This requires tensor data to be alignas(32) in memory
+    void dt() {
+      if(this->ndim() == 2) {
+        float* t = this->storage.get();
+        float* tt = new alignas(32) float[this->disklen()];
+        uint32_t* shp = this->view().get();
+        this-> _8x8_transpose_ps<128>(t, tt, shp[0], shp[1]);
+        this->storage = std::shared_ptr<T[]>(tt);
+      } else {
+        throw std::logic_error("multidimentional tensor data transpose not implemented. bad call to <tensor>.dt().");
+      }
+    }
+
+
+/*-------------------------------------------------*/
 	protected:
 
 		Tensor<T> stride_and_create(std::unique_ptr<uint32_t[]>& idxs, uint32_t len) {
@@ -734,12 +750,14 @@ class Tensor {
 		inline uint64_t accumulate_strides (std::unique_ptr<uint32_t[]>& arr, size_t len) {
 			uint64_t acc = 0; 
 			for(size_t i=0; i < len; i++) {
-				if(arr[i] >= this->shape->view[i]) throw TensorException(INVALID_SHAPE_OPERATION, "Index out of bounds.");
+				if(arr[i] >= this->shape->view[i]) throw std::invalid_argument("index out of bounds.");
 				acc += this->shape->strides[i]*arr[i];
 			}
 			return acc;
 		}
 
+
+// NON-AVX SGEMMS 
     template<int rows, int columns, int inners>
     inline void gemm(T* const lhs, T* const rhs, T* const result) {
       #pragma omp parallel for shared(result, lhs, rhs) default(none) collapse(2) num_threads(24)
@@ -771,11 +789,78 @@ class Tensor {
       }
     }
 
+
+// MEMORY TRANSPOSE
+    template <int block>
+    inline void _8x8_transpose_ps(const float* from, float* to, int lda, int ldb) {
+      #pragma omp parallel for shared(from, to, lda, ldb) default(none) collapse(2) num_threads(24)
+      for(int i=0; i<lda; i+=block) {
+        for(int j=0; j<ldb; j+=block) {
+          int mk = std::min(i+block, lda);
+          int ml = std::min(j+block, ldb);
+          for(int k=i; k<mk; k+=8) {
+            for(int l=j; l<ml; l+=8) {
+
+#if defined(__AVX__) && defined(__FMA__)
+              this->_t_load_8x8_ps(&from[k*lda+l], &to[l*ldb+k], lda, ldb);
+#else
+              throw std::logic_error("non-AVX data transpose not yet implemented. bad call to <tensor>.dt().");
+#endif
+            }
+          }
+        }
+      }
+    }
+
+#if defined(__AVX__) && defined(__FMA__)
+    static inline void _t_load_8x8_ps(const float* from, float* to, int lda, int ldb) {
+      __m256 t0, t1, t2, t3, t4,t5, t6, t7,
+             r0, r1, r2, r3, r4, r5, r6, r7;
+
+      r0 = _mm256_insertf128_ps(_mm256_castps128_ps256(_mm_load_ps(&from[0*lda+0])), _mm_load_ps(&from[4*lda+0]), 1);
+      r1 = _mm256_insertf128_ps(_mm256_castps128_ps256(_mm_load_ps(&from[1*lda+0])), _mm_load_ps(&from[5*lda+0]), 1);
+      r2 = _mm256_insertf128_ps(_mm256_castps128_ps256(_mm_load_ps(&from[2*lda+0])), _mm_load_ps(&from[6*lda+0]), 1);
+      r3 = _mm256_insertf128_ps(_mm256_castps128_ps256(_mm_load_ps(&from[3*lda+0])), _mm_load_ps(&from[7*lda+0]), 1);
+      r4 = _mm256_insertf128_ps(_mm256_castps128_ps256(_mm_load_ps(&from[0*lda+4])), _mm_load_ps(&from[4*lda+4]), 1);
+      r5 = _mm256_insertf128_ps(_mm256_castps128_ps256(_mm_load_ps(&from[1*lda+4])), _mm_load_ps(&from[5*lda+4]), 1);
+      r6 = _mm256_insertf128_ps(_mm256_castps128_ps256(_mm_load_ps(&from[2*lda+4])), _mm_load_ps(&from[6*lda+4]), 1);
+      r7 = _mm256_insertf128_ps(_mm256_castps128_ps256(_mm_load_ps(&from[3*lda+4])), _mm_load_ps(&from[7*lda+4]), 1);
+
+      t0 = _mm256_unpacklo_ps(r0, r1);
+      t1 = _mm256_unpackhi_ps(r0, r1);
+      t2 = _mm256_unpacklo_ps(r2, r3);
+      t3 = _mm256_unpackhi_ps(r2, r3);
+      t4 = _mm256_unpacklo_ps(r4, r5);
+      t5 = _mm256_unpackhi_ps(r4, r5);
+      t6 = _mm256_unpacklo_ps(r6, r7);
+      t7 = _mm256_unpackhi_ps(r6, r7);
+
+      r0 = _mm256_shuffle_ps(t0, t2, 0x44);
+      r1 = _mm256_shuffle_ps(t0, t2, 0xee);
+      r2 = _mm256_shuffle_ps(t1, t3, 0x44);
+      r3 = _mm256_shuffle_ps(t1, t3, 0xee);
+      r4 = _mm256_shuffle_ps(t4, t6, 0x44);
+      r5 = _mm256_shuffle_ps(t4, t6, 0xee);
+      r6 = _mm256_shuffle_ps(t5, t7, 0x44);
+      r7 = _mm256_shuffle_ps(t5, t7, 0xee);
+
+      _mm256_store_ps( &to[0*ldb], r0);
+      _mm256_store_ps( &to[1*ldb], r1);
+      _mm256_store_ps( &to[2*ldb], r2);
+      _mm256_store_ps( &to[3*ldb], r3);
+      _mm256_store_ps( &to[4*ldb], r4);
+      _mm256_store_ps( &to[5*ldb], r5);
+      _mm256_store_ps( &to[6*ldb], r6);
+      _mm256_store_ps( &to[7*ldb], r7);
+    }
+#endif 
+
 };
 
 
 
 // OUTPUT REPR 
+/*-------------------------------------------------*/
 
 template<typename T>
 inline std::ostream& operator<<(std::ostream& outs, Tensor<T>& tensor) {
