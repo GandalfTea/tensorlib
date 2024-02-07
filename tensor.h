@@ -650,13 +650,15 @@ class Tensor {
 /*-------------------------------------------------*/
 
     // NOTE: This requires tensor data to be alignas(32) in memory
+    template<int block=128, int threads=1>
     void dt() {
       if(this->ndim() == 2) {
         float* t = this->storage.get();
         float* tt = new alignas(32) float[this->disklen()];
         uint32_t* shp = this->view().get();
-        this-> _8x8_transpose_ps<128>(t, tt, shp[0], shp[1]);
+        this-> _8x8_transpose_ps<block, threads>(t, tt, shp[0], shp[1]);
         this->storage = std::shared_ptr<T[]>(tt);
+        //delete tt;
       } else {
         throw std::logic_error("multidimentional tensor data transpose not implemented. bad call to <tensor>.dt().");
       }
@@ -776,9 +778,9 @@ class Tensor {
 
 
 // MEMORY TRANSPOSE
-    template <int block>
+    template <int block, int threads>
     inline void _8x8_transpose_ps(const float* from, float* to, int lda, int ldb) {
-      #pragma omp parallel for shared(from, to, lda, ldb) default(none) collapse(2) num_threads(24)
+      #pragma omp parallel for shared(from, to, lda, ldb) default(none) collapse(2) num_threads(threads)
       for(int i=0; i<lda; i+=block) {
         for(int j=0; j<ldb; j+=block) {
           int mk = std::min(i+block, lda);
