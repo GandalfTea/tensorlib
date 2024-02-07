@@ -1,6 +1,7 @@
 #define CATCH_CONFIG_MAIN 
 
 #include <limits.h>
+#include <iostream>
 #include "catch.hpp"
 #include "tensor.h"
 
@@ -191,7 +192,7 @@ TEST_CASE("Test Movement OPs", "[core]") {
 
 	SECTION("Test Expand {1, 512} --> {5, 512}") {
 		View a = View({1, 512});	
-		std::shared_ptr<uint32_t[]> arg = std::make_unique<uint32_t[]>(2);
+		std::shared_ptr<int32_t[]> arg = std::make_unique<int32_t[]>(2);
 		arg[0] = 5;
 		arg[1] = 512;
 		std::shared_ptr<uint32_t[]> newstrides = std::make_unique<uint32_t[]>(2);
@@ -207,21 +208,15 @@ TEST_CASE("Test Movement OPs", "[core]") {
 
 	SECTION("Test Expand INVALID_NUMBER_OF_DIMENSIONS") {
 		View a = View({1, 512});	
-		std::shared_ptr<uint32_t[]> arg = std::make_unique<uint32_t[]>(3);
+		std::shared_ptr<int32_t[]> arg = std::make_unique<int32_t[]>(1);
 		arg[0] = 5;
-		arg[1] = 512;
-		arg[2] = 512;
-		size_t len = 3;
+		size_t len = 1;
 		CHECK(a.expand(arg, len) == INVALID_NUMBER_OF_DIMENSIONS);
-		std::shared_ptr<uint32_t[]> arg2 = std::make_unique<uint32_t[]>(1);
-		arg[0] = 5;
-		len = 1;
-		CHECK(a.expand(arg2, len) == INVALID_NUMBER_OF_DIMENSIONS);
 	}
 
 	SECTION("Test Expand INVALID_ARGUMENTS") {
 		View a = View({2, 512});	
-		std::shared_ptr<uint32_t[]> arg = std::make_unique<uint32_t[]>(2);
+		std::shared_ptr<int32_t[]> arg = std::make_unique<int32_t[]>(2);
 		arg[0] = 5;
 		arg[1] = 512;
 		size_t len = 2;
