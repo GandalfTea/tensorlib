@@ -312,6 +312,16 @@ class Tensor {
 			if(size != this->shape->numel()) throw std::length_error("Shape does not match data.");
 		};
 
+		Tensor(std::initializer_list<T> arr, std::initializer_list<uint32_t> shape, Device device=CPU, bool is_fill=false)
+			: shape(std::make_unique<View>(View(shape))), device(device), is_initialized(true), bresolved(true)
+		{
+			if(!is_fill && arr.size() != this->shape->numel()) throw std::length_error("Shape does not match data.");
+			std::unique_ptr<T[]> narr = std::unique_ptr<T[]>(new T[arr.size()]);
+			uint32_t i = 0;
+			for(const auto& x : arr) { narr[i] = x; i++; }
+			this->storage = std::move(narr);
+		};
+
 
 		// These are mostly for internal use
 		Tensor(std::unique_ptr<T[]> &arr, uint64_t size, sized_array<uint32_t> shape, Device device=CPU)
