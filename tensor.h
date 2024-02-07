@@ -219,9 +219,13 @@ struct View {
       }
       newview[i] = argview[i];
       acc *= argview[i];
-      if(oview[hits] == 1) hits++;
+      if(oview[hits] == 1 && argview[i] != 1) {
+        newstrd[i] = 0;
+        hits++;
+        continue;
+      } 
       if(argview[i] == oview[hits]) {
-        newstrd[i] = (oview[hits] == 1) ? 0 : ostrd[hits];
+        newstrd[i] = ostrd[hits];
         hits++;
       } else newstrd[i] = 0;
     }
@@ -493,7 +497,7 @@ class Tensor {
 		
 		bool reshape(std::initializer_list<int32_t> nview) { return this->execute_movement_op(nview, RESHAPE); }
 		bool permute(std::initializer_list<uint32_t> nview) { return this->execute_movement_op(nview, PERMUTE); }
-		bool expand(std::initializer_list<uint32_t> nview) { return this->execute_movement_op(nview, EXPAND); }
+		bool expand(std::initializer_list<int32_t> nview) { return this->execute_movement_op(nview, EXPAND); }
 
 		std::unique_ptr<uint32_t[]> stride(std::unique_ptr<uint32_t[]>& idxs, uint32_t len) {
 			const uint64_t startidx = this->accumulate_strides(idxs, len);
