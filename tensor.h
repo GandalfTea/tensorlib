@@ -77,24 +77,44 @@ struct sized_array {
 /*-------------------------------------------------------------------------------------------------------*/
 
 struct View {
+
 	std::shared_ptr<uint32_t[]> view = nullptr;
 	std::shared_ptr<uint32_t[]> strides = nullptr;
+
+	uint32_t ndim()  { return this->numdim; }
+	uint64_t numel() { return this->elements; }
+  uint64_t disksize() { return this->diskelem; }
+
+	private:
+		uint32_t numdim = 0;
+		uint64_t elements = 0;
+    uint64_t diskelem = 0;
+
+		void restride() {
+      uint32_t* nstr = new alignas(32) uint32_t[this->numdim];
+      nstr[this->numdim-1] = 1;
+			for(size_t i=this->numdim-1; i > 0; --i) nstr[i-1] = nstr[i]*view[i];
+      this->strides = std::unique_ptr<uint32_t[]>(nstr);
+		}
+
+  public: 
 
 	View(std::initializer_list<uint32_t> argview) 
 		: numdim(argview.size())
 	{
 		if(argview.size() >= TENSOR_MAX_DIM) throw std::length_error("TENSOR_MAX_DIM Exceeded.");
-		this->view = std::unique_ptr<uint32_t[]>(new uint32_t[argview.size()]);
+    uint32_t* nv = new alignas(32) uint32_t[argview.size()];
 		uint32_t i = 0; 
 		uint64_t acc = 1;
 		for(const auto& x : argview) {
 			if(x <= 0) throw std::invalid_argument("View arguments cannot be equal or smaller than 0."); 
-			this->view[i++] = x;
+      nv[i++] = x;
 			acc *= x;
 		}
 		if(acc > TENSOR_MAX_STORAGE_SIZE) throw std::length_error("TENSOR_MAX_STORAGE_SIZE Exceeded.");
+    this->view = std::unique_ptr<uint32_t[]>(nv);
 		this->elements = acc;
-		this->disklen = acc;
+		this->diskelem = acc;
 		this->restride();
 	}
 
@@ -102,16 +122,17 @@ struct View {
 		: numdim(dim)
 	{
 		if(dim >= TENSOR_MAX_DIM) throw std::length_error("TENSOR_MAX_DIM Exceeded.");
-		this->view = std::unique_ptr<uint32_t[]>(new uint32_t[dim]);
+    uint32_t* nv = new alignas(32) uint32_t[dim];
 		uint64_t acc = 1;
 		for(size_t i=0; i<dim; i++) {
 			if(argview[i] <= 0) throw std::invalid_argument("View arguments cannot be equal or smaller than 0."); 
-			this->view[i] = argview[i];
+			nv[i] = argview[i];
 			acc *= argview[i];
 		}
 		if(acc > TENSOR_MAX_STORAGE_SIZE) throw std::length_error("TENSOR_MAX_STORAGE_SIZE Exceeded.");
+    this->view = std::unique_ptr<uint32_t[]>(nv);
 		this->elements = acc;
-		this->disklen = acc;
+		this->diskelem = acc;
 		this->restride();
 	}
 
@@ -126,7 +147,7 @@ struct View {
 		uint64_t acc = 1;
 		bool b_infer = false;
 		size_t infer_idx = 0;
-		std::unique_ptr<uint32_t[]> ptr = std::unique_ptr<uint32_t[]>(new uint32_t[dim]);
+    uint32_t* ptr = new alignas(32) uint32_t[dim];
 		for(size_t i=0; i < dim; i++) { 
       if(argview[i] < -1) return INVALID_ARGUMENTS;
       if(argview[i] == -1) {
@@ -145,7 +166,7 @@ struct View {
 			acc *= inf; 
 		}
 		if(acc != this->elements) return INVALID_ARGUMENTS;
-		this->view = std::move(ptr);
+		this->view = std::unique_ptr<uint32_t[]>(ptr); 
 		this->numdim=dim;
 		this->restride();
 		return SUCCESSFUL;
@@ -157,66 +178,56 @@ struct View {
     uint32_t consum = ((len-1)*(len))/2;
     uint32_t consum_c = 0;
 		if(len != this->numdim) return INVALID_NUMBER_OF_DIMENSIONS;
-		std::unique_ptr<uint32_t[]> newview = std::unique_ptr<uint32_t[]>(new uint32_t[len]);
-		std::unique_ptr<uint32_t[]> newstrd = std::unique_ptr<uint32_t[]>(new uint32_t[len]);
+    uint32_t* newview = new alignas(32) uint32_t[len];
+    uint32_t* newstrd = new alignas(32) uint32_t[len];
+    uint32_t* oview = this->view.get();
+    uint32_t* ostrd = this->strides.get();
 		for(size_t i=0; i < len; i++) {
 			if(idxs[i] >= this->numdim || idxs[i] < 0) return INVALID_ARGUMENTS;
-			newview[i] = this->view[idxs[i]];	
-			newstrd[i] = this->strides[idxs[i]];
+			newview[i] = oview[idxs[i]];	
+			newstrd[i] = ostrd[idxs[i]];
       consum_c += idxs[i];
 		}
     if(consum_c != consum) return INVALID_ARGUMENTS;
-		this->view = std::move(newview);
-		this->strides = std::move(newstrd);
+    this->view = std::unique_ptr<uint32_t[]>(newview);
+    this->strides = std::unique_ptr<uint32_t[]>(newstrd);
 		return SUCCESSFUL;
 	}
 
-	// TODO: Support new dims
-	// TODO: Cannot change element count because that doesn't allow me to expand back to original dim.
-	// NOTE: This changes total element count
-	op_ret expand(std::shared_ptr<uint32_t[]> &argview, size_t &len) {
-		if(len != this->numdim) return INVALID_NUMBER_OF_DIMENSIONS;
-		for(size_t i=0; i<len; i++) if(argview[i] != this->view[i] && this->view[i] != 1) return INVALID_ARGUMENTS;
-		for(size_t i=0; i<len; i++) {
-			if(argview[i]!=this->view[i]) this->strides[i] = 0;
-			this->view[i] = argview[i];
-		}
-		return SUCCESSFUL;
-	}
-
-
-  // TODO: this should be the default expand function 
   // TODO: signed int32 restricts input values 
   // NOTE: -1 is a relative index to the next existing dimension in line, it's position is irrelevant
-  // {128, 128} -> {5, 128, 5, 128, 5}
-  // {128, 128} -> {5,  -1, 5, 128, 5}
-  // {128, 128} -> {5, 128, 5,  -1, 5}  
-  op_ret fancy_expand(std::shared_ptr<int32_t[]> &argview, size_t &len) {
+  // {128, 128} -> {5, 128, 69, 128, 5}
+  // {128, 128} -> {5,  -1, 69, 128, 5}
+  // {128, 128} -> {5, 128, 69,  -1, 5}  
+  op_ret expand(std::shared_ptr<int32_t[]> &argview, size_t &len) {
     if(len < this->numdim) return INVALID_NUMBER_OF_DIMENSIONS;
     uint32_t hits = 0;
     uint64_t acc = 1;
-		std::unique_ptr<uint32_t[]> newview = std::unique_ptr<uint32_t[]>(new uint32_t[len]);
-		std::unique_ptr<uint32_t[]> newstrd = std::unique_ptr<uint32_t[]>(new uint32_t[len]);
+    uint32_t* newview = new alignas(32) uint32_t[len];
+    uint32_t* newstrd = new alignas(32) uint32_t[len];
+    uint32_t* oview = this->view.get();
+    uint32_t* ostrd = this->strides.get();
     for(size_t i=0; i<len; i++) {
       if(argview[i] < -1) return INVALID_ARGUMENTS;
       if(argview[i] == -1) {
         if(hits < this->numdim) {
-          newview[i] = this->view[hits];
-          newstrd[i] = this->strides[hits];
+          newview[i] = oview[hits];
+          newstrd[i] = ostrd[hits];
           hits++;
           continue;
         } else return INVALID_ARGUMENTS;
       }
       newview[i] = argview[i];
       acc *= argview[i];
-      if(argview[i] == this->view[hits]) {
-        newstrd[i] = (this->view[hits] == 1) ? 0 : this->strides[hits];
+      if(oview[hits] == 1) hits++;
+      if(argview[i] == oview[hits]) {
+        newstrd[i] = (oview[hits] == 1) ? 0 : ostrd[hits];
         hits++;
       } else newstrd[i] = 0;
     }
     if(hits != this->numdim) return INVALID_ARGUMENTS;
-    this->view = std::move(newview);
-    this->strides = std::move(newstrd);
+    this->view = std::unique_ptr<uint32_t[]>(newview);
+    this->strides = std::unique_ptr<uint32_t[]>(newstrd);
     this->elements = acc;
     this->numdim = len;
     return SUCCESSFUL;
@@ -227,21 +238,23 @@ struct View {
     uint64_t acc = 1;
     uint32_t nndim = 0;
     for(size_t i=0; i<this->numdim; i++) if(this->strides[i] != 0) nndim++; // Shit code
-		std::unique_ptr<uint32_t[]> nview = std::unique_ptr<uint32_t[]>(new uint32_t[nndim]);
-		std::unique_ptr<uint32_t[]> nstrd = std::unique_ptr<uint32_t[]>(new uint32_t[nndim]);
+    uint32_t* nview = new alignas(32) uint32_t[nndim];
+    uint32_t* nstrd = new alignas(32) uint32_t[nndim];
+    uint32_t* oview = this->view.get();
+    uint32_t* ostrd = this->strides.get();
     for(size_t i=0; i<this->numdim; i++) {
       if(this->strides[i] != 0) {
-        nview[idx] = this->view[i]; 
-        nstrd[idx] = this->strides[i];
-        acc *= this->view[i];
+        nview[idx] = oview[i]; 
+        nstrd[idx] = ostrd[i];
+        acc *= oview[i];
         idx++;
       }
     } 
-    if(acc != this->disklen) return INVALID_ARGUMENTS;
-    this->view = std::move(nview);
-    this->strides = std::move(nstrd);
+    if(acc != this->diskelem) return INVALID_ARGUMENTS;
+    this->view = std::unique_ptr<uint32_t[]>(nview);
+    this->strides = std::unique_ptr<uint32_t[]>(nstrd);
     this->numdim = idx;
-    this->elements = this->disklen;
+    this->elements = this->diskelem;
     return SUCCESSFUL;
   }
 
@@ -250,26 +263,6 @@ struct View {
 	op_ret flip(std::shared_ptr<uint32_t[]> &argview, size_t &len) { return NOT_IMPLEMENTED; }
 	op_ret pad(std::shared_ptr<uint32_t[]> &argview, size_t &len) { return NOT_IMPLEMENTED; }
 
-
-  // VARIABLES
-/*-------------------------------------------------*/
-
-	uint32_t ndim()  { return this->numdim; }
-	uint64_t numel() { return this->elements; }
-  uint64_t disksize() { return this->disklen; }
-
-	private:
-		uint32_t numdim = 0;
-		uint64_t elements = 0;
-    uint64_t disklen = 0;
-
-		void restride() {
-			this->strides = std::unique_ptr<uint32_t[]>(new uint32_t[this->numdim]);
-			this->strides[this->numdim-1] = 1;
-			for(size_t i=this->numdim-1; i > 0; --i) {
-				this->strides[i-1] = this->strides[i] * view[i];
-			}	
-		}
 };
 
 
@@ -513,13 +506,6 @@ class Tensor {
 		bool permute(std::initializer_list<uint32_t> nview) { return this->execute_movement_op(nview, PERMUTE); }
 		bool expand(std::initializer_list<uint32_t> nview) { return this->execute_movement_op(nview, EXPAND); }
 
-    int fancy_expand(std::initializer_list<uint32_t> nview) {
-			sized_array<int32_t> shape { std::make_unique<int32_t[]>(nview.size()), nview.size() };
-			uint32_t i = 0;
-			for(const auto& x : nview) shape.ptr[i++] = x;
-      return this->shape->fancy_expand(shape.ptr, shape.size);
-    }
-
 		std::unique_ptr<uint32_t[]> stride(std::unique_ptr<uint32_t[]>& idxs, uint32_t len) {
 			const uint64_t startidx = this->accumulate_strides(idxs, len);
 			uint64_t endidx = startidx;
@@ -720,11 +706,20 @@ class Tensor {
 		}
 
 		bool execute_movement_op(std::initializer_list<int32_t> nview, MovementOPs op) {
-			if(op != RESHAPE) return 0;
+			if(op != RESHAPE && op != EXPAND) return 0;
 			sized_array<int32_t> s { std::make_unique<int32_t[]>(nview.size()), nview.size() };
 			uint32_t i = 0;
 			for(const auto& x : nview) s.ptr[i++] = x;
-			this->return_from_err(this->shape->reshape(s.ptr, s.size));
+
+			op_ret ret;
+			switch(op) {
+        case RESHAPE:
+			    return this->return_from_err(this->shape->reshape(s.ptr, s.size));
+          break;
+        case EXPAND:
+					return this->return_from_err(this->shape->expand(s.ptr, s.size));
+					break;
+      }
 		}
 
 		bool execute_movement_op(std::initializer_list<uint32_t> nview, MovementOPs op) {
@@ -735,9 +730,6 @@ class Tensor {
 			switch(op) {
 				case PERMUTE:
 					ret = this->shape->permute(shape.ptr, shape.size);
-					break;
-				case EXPAND:
-					ret = this->shape->expand(shape.ptr, shape.size);
 					break;
 				case SHRINK:
 				case FLIP:
