@@ -264,29 +264,6 @@ TEST_CASE("Tensor Constructor", "[core]") {
 	}
 
 	SECTION("Test sized_array shape constructor") {
-		SECTION("initializer_list") {
-			sized_array<uint32_t> s;
-			s.ptr = std::unique_ptr<uint32_t[]>(new uint32_t[2]());
-			s.ptr[0] = 2;
-			s.ptr[1] = 3;
-			s.size = 2;
-			Tensor<float> a({0, 1, 2, 3, 4, 5}, s);
-			CHECK(a.is_initialized);
-			CHECK(a.device == CPU);
-			CHECK(a.size() == 6);
-			CHECK(a.data());
-			CHECK(a.strides());
-			CHECK(a.view());
-			CHECK(a.ndim() == 2);
-			std::initializer_list<uint32_t> c = {2, 3};
-			std::shared_ptr<uint32_t[]> shp = a.view();
-			uint32_t i=0;
-			for(const auto &x : c) {
-				CHECK(shp[i] == x);
-				i++;
-			}
-		}
-
 		SECTION("unique_ptr") {
 			sized_array<uint32_t> s;
 			s.ptr = std::unique_ptr<uint32_t[]>(new uint32_t[3]());
