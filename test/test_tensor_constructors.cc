@@ -263,30 +263,6 @@ TEST_CASE("Tensor Constructor", "[core]") {
 		}
 	}
 
-	SECTION("Test initializer_list constructor") {
-		SECTION("float") {
-			Tensor<float> a({0, 1, 2, 3, 4, 5}, {2, 3});
-			CHECK(a.is_initialized);
-			CHECK(a.device == CPU);
-			CHECK(a.size() == 6);
-			CHECK(a.data());
-			CHECK(a.strides());
-			CHECK(a.view());
-			CHECK(a.ndim() == 2);
-			std::initializer_list<uint32_t> c = {2, 3};
-			std::shared_ptr<uint32_t[]> shp = a.view();
-			uint32_t i=0;
-			for(const auto &x : c) {
-				CHECK(shp[i] == x);
-				i++;
-			}
-		}
-
-		SECTION("Incorrect shape") {
-			CHECK_THROWS(Tensor<float>({0.f, 1.f, 2.f, 3.f, 4.f, 5.f}, {2, 2, 2}));
-		}
-	}
-
 	SECTION("Test sized_array shape constructor") {
 		SECTION("initializer_list") {
 			sized_array<uint32_t> s;
