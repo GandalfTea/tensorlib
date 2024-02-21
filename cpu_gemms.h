@@ -499,159 +499,128 @@ uint32_t f32_max_l1() {
 typedef union {
   __m256 v;
   float f[8];
-} v2f_t;
+} m256_t;
 
-inline void _8x8_m256_gemm(int k, const float* a, int lda, const float* b, int ldb, float* c, int ldc) {
-  int p;
-  v2f_t c_0007_vreg, c_1017_vreg, c_2027_vreg, c_3037_vreg,
-        c_4047_vreg, c_5057_vreg, c_6067_vreg, c_7077_vreg,
-        a_vreg,
-        b_p0_vreg, b_p1_vreg, b_p2_vreg, b_p3_vreg,
-        b_p4_vreg, b_p5_vreg, b_p6_vreg, b_p7_vreg;
+inline void _8x8_m256_gemm(int k, const float* a, const float* b, float* c, int ldc) {
 
-  c_0007_vreg.v =  _mm256_setzero_ps();
-  c_1017_vreg.v =  _mm256_setzero_ps();
-  c_2027_vreg.v =  _mm256_setzero_ps();
-  c_3037_vreg.v =  _mm256_setzero_ps();
-  c_4047_vreg.v =  _mm256_setzero_ps();
-  c_5057_vreg.v =  _mm256_setzero_ps();
-  c_6067_vreg.v =  _mm256_setzero_ps();
-  c_7077_vreg.v =  _mm256_setzero_ps();
+  m256_t c0007, c1017, c2027, c3037,
+         c4047, c5057, c6067, c7077,
+         a_vreg, b_p0_vreg;
 
-  for(p=0; p<k; p++) {
+  c0007.v = _mm256_setzero_ps();
+  c1017.v = _mm256_setzero_ps();
+  c2027.v = _mm256_setzero_ps();
+  c3037.v = _mm256_setzero_ps();
+  c4047.v = _mm256_setzero_ps();
+  c5057.v = _mm256_setzero_ps();
+  c6067.v = _mm256_setzero_ps();
+  c7077.v = _mm256_setzero_ps();
 
-    __builtin_prefetch((a+8));
-    __builtin_prefetch((b+8));
+  for(int iiiii=0; iiiii<k; iiiii++) {
+    __builtin_prefetch(a+8);
+    __builtin_prefetch(b+8);
 
     a_vreg.v = _mm256_load_ps( (float*)a );
     b_p0_vreg.v = _mm256_load_ps( (float*)b );
     a += 8;
     b += 8;
 
-/*
-    b_p0_vreg.v = _mm256_broadcast_ss( (float*) b ); // load and broadcast  
-    b_p1_vreg.v = _mm256_broadcast_ss( (float*) (b+1) ); 
-    b_p2_vreg.v = _mm256_broadcast_ss( (float*) (b+2) ); 
-    b_p3_vreg.v = _mm256_broadcast_ss( (float*) (b+3) );
-    b_p4_vreg.v = _mm256_broadcast_ss( (float*) (b+4) ); 
-    b_p5_vreg.v = _mm256_broadcast_ss( (float*) (b+5) ); 
-    b_p6_vreg.v = _mm256_broadcast_ss( (float*) (b+6) ); 
-    b_p7_vreg.v = _mm256_broadcast_ss( (float*) (b+7) );
-
-    c_0007_vreg.v   = _mm256_fmadd_ps(a_1_vreg.v, b_p0_vreg.v, c_0007_vreg.v);
-    c_1017_vreg.v   = _mm256_fmadd_ps(a_1_vreg.v, b_p1_vreg.v, c_1017_vreg.v);
-    c_2027_vreg.v   = _mm256_fmadd_ps(a_1_vreg.v, b_p2_vreg.v, c_2027_vreg.v);
-    c_3037_vreg.v   = _mm256_fmadd_ps(a_1_vreg.v, b_p3_vreg.v, c_3037_vreg.v);
-    c_4047_vreg.v   = _mm256_fmadd_ps(a_1_vreg.v, b_p4_vreg.v, c_4047_vreg.v);
-    c_5057_vreg.v   = _mm256_fmadd_ps(a_1_vreg.v, b_p5_vreg.v, c_5057_vreg.v);
-    c_6067_vreg.v   = _mm256_fmadd_ps(a_1_vreg.v, b_p6_vreg.v, c_6067_vreg.v);
-    c_7077_vreg.v   = _mm256_fmadd_ps(a_1_vreg.v, b_p7_vreg.v, c_7077_vreg.v);
-*/
-    c_0007_vreg.v += a_vreg.v * b_p0_vreg.f[0];
-    c_1017_vreg.v += a_vreg.v * b_p0_vreg.f[1];
-    c_2027_vreg.v += a_vreg.v * b_p0_vreg.f[2];
-    c_3037_vreg.v += a_vreg.v * b_p0_vreg.f[3];
-    c_4047_vreg.v += a_vreg.v * b_p0_vreg.f[4];
-    c_5057_vreg.v += a_vreg.v * b_p0_vreg.f[5];
-    c_6067_vreg.v += a_vreg.v * b_p0_vreg.f[6];
-    c_7077_vreg.v += a_vreg.v * b_p0_vreg.f[7];
+    c0007.v += a_vreg.v * b_p0_vreg.f[0];
+    c1017.v += a_vreg.v * b_p0_vreg.f[1];
+    c2027.v += a_vreg.v * b_p0_vreg.f[2];
+    c3037.v += a_vreg.v * b_p0_vreg.f[3];
+    c4047.v += a_vreg.v * b_p0_vreg.f[4];
+    c5057.v += a_vreg.v * b_p0_vreg.f[5];
+    c6067.v += a_vreg.v * b_p0_vreg.f[6];
+    c7077.v += a_vreg.v * b_p0_vreg.f[7];
   }
 
-  c[(0*ldc)+0] += c_0007_vreg.f[0]; c[(1*ldc)+0] += c_1017_vreg.f[0]; 
-  c[(2*ldc)+0] += c_2027_vreg.f[0]; c[(3*ldc)+0] += c_3037_vreg.f[0]; 
-  c[(4*ldc)+0] += c_4047_vreg.f[0]; c[(5*ldc)+0] += c_5057_vreg.f[0]; 
-  c[(6*ldc)+0] += c_6067_vreg.f[0]; c[(7*ldc)+0] += c_7077_vreg.f[0]; 
+  m256_t w0, w1, w2, w3, w4, w5, w6, w7;
 
-  c[(0*ldc)+1] += c_0007_vreg.f[1]; c[(1*ldc)+1] += c_1017_vreg.f[1]; 
-  c[(2*ldc)+1] += c_2027_vreg.f[1]; c[(3*ldc)+1] += c_3037_vreg.f[1]; 
-  c[(4*ldc)+1] += c_4047_vreg.f[1]; c[(5*ldc)+1] += c_5057_vreg.f[1]; 
-  c[(6*ldc)+1] += c_6067_vreg.f[1]; c[(7*ldc)+1] += c_7077_vreg.f[1]; 
+  w0.v = _mm256_load_ps((float*)&wc[0*ldc]);
+  w1.v = _mm256_load_ps((float*)&wc[1*ldc]);
+  w2.v = _mm256_load_ps((float*)&wc[2*ldc]);
+  w3.v = _mm256_load_ps((float*)&wc[3*ldc]);
+  w4.v = _mm256_load_ps((float*)&wc[4*ldc]);
+  w5.v = _mm256_load_ps((float*)&wc[5*ldc]);
+  w6.v = _mm256_load_ps((float*)&wc[6*ldc]);
+  w7.v = _mm256_load_ps((float*)&wc[7*ldc]);
 
-  c[(0*ldc)+2] += c_0007_vreg.f[2]; c[(1*ldc)+2] += c_1017_vreg.f[2]; 
-  c[(2*ldc)+2] += c_2027_vreg.f[2]; c[(3*ldc)+2] += c_3037_vreg.f[2]; 
-  c[(4*ldc)+2] += c_4047_vreg.f[2]; c[(5*ldc)+2] += c_5057_vreg.f[2]; 
-  c[(6*ldc)+2] += c_6067_vreg.f[2]; c[(7*ldc)+2] += c_7077_vreg.f[2]; 
+  c0007.v = _mm256_add_ps(c0007.v, w0.v);
+  c1017.v = _mm256_add_ps(c1017.v, w1.v);
+  c2027.v = _mm256_add_ps(c2027.v, w2.v);
+  c3037.v = _mm256_add_ps(c3037.v, w3.v);
+  c4047.v = _mm256_add_ps(c4047.v, w4.v);
+  c5057.v = _mm256_add_ps(c5057.v, w5.v);
+  c6067.v = _mm256_add_ps(c6067.v, w6.v);
+  c7077.v = _mm256_add_ps(c7077.v, w7.v);
 
-  c[(0*ldc)+3] += c_0007_vreg.f[3]; c[(1*ldc)+3] += c_1017_vreg.f[3]; 
-  c[(2*ldc)+3] += c_2027_vreg.f[3]; c[(3*ldc)+3] += c_3037_vreg.f[3]; 
-  c[(4*ldc)+3] += c_4047_vreg.f[3]; c[(5*ldc)+3] += c_5057_vreg.f[3]; 
-  c[(6*ldc)+3] += c_6067_vreg.f[3]; c[(7*ldc)+3] += c_7077_vreg.f[3]; 
-
-  c[(0*ldc)+4] += c_0007_vreg.f[4]; c[(1*ldc)+4] += c_1017_vreg.f[4]; 
-  c[(2*ldc)+4] += c_2027_vreg.f[4]; c[(3*ldc)+4] += c_3037_vreg.f[4]; 
-  c[(4*ldc)+4] += c_4047_vreg.f[4]; c[(5*ldc)+4] += c_5057_vreg.f[4]; 
-  c[(6*ldc)+4] += c_6067_vreg.f[4]; c[(7*ldc)+4] += c_7077_vreg.f[4]; 
-
-  c[(0*ldc)+5] += c_0007_vreg.f[5]; c[(1*ldc)+5] += c_1017_vreg.f[5]; 
-  c[(2*ldc)+5] += c_2027_vreg.f[5]; c[(3*ldc)+5] += c_3037_vreg.f[5]; 
-  c[(4*ldc)+5] += c_4047_vreg.f[5]; c[(5*ldc)+5] += c_5057_vreg.f[5]; 
-  c[(6*ldc)+5] += c_6067_vreg.f[5]; c[(7*ldc)+5] += c_7077_vreg.f[5]; 
-
-  c[(0*ldc)+6] += c_0007_vreg.f[6]; c[(1*ldc)+6] += c_1017_vreg.f[6]; 
-  c[(2*ldc)+6] += c_2027_vreg.f[6]; c[(3*ldc)+6] += c_3037_vreg.f[6]; 
-  c[(4*ldc)+6] += c_4047_vreg.f[6]; c[(5*ldc)+6] += c_5057_vreg.f[6]; 
-  c[(6*ldc)+6] += c_6067_vreg.f[6]; c[(7*ldc)+6] += c_7077_vreg.f[6]; 
-
-  c[(0*ldc)+7] += c_0007_vreg.f[7]; c[(1*ldc)+7] += c_1017_vreg.f[7]; 
-  c[(2*ldc)+7] += c_2027_vreg.f[7]; c[(3*ldc)+7] += c_3037_vreg.f[7]; 
-  c[(4*ldc)+7] += c_4047_vreg.f[7]; c[(5*ldc)+7] += c_5057_vreg.f[7]; 
-  c[(6*ldc)+7] += c_6067_vreg.f[7]; c[(7*ldc)+7] += c_7077_vreg.f[7]; 
+  _mm256_store_ps( &wc[0*ldc], c0007.v);
+  _mm256_store_ps( &wc[1*ldc], c1017.v);
+  _mm256_store_ps( &wc[2*ldc], c2027.v);
+  _mm256_store_ps( &wc[3*ldc], c3037.v);
+  _mm256_store_ps( &wc[4*ldc], c4047.v);
+  _mm256_store_ps( &wc[5*ldc], c5057.v);
+  _mm256_store_ps( &wc[6*ldc], c6067.v);
+  _mm256_store_ps( &wc[7*ldc], c7077.v);
 }
 
 
-void pack_a(int k, const float* a, int lda, float* to) {
-  int j;
-  for(j=0; j<k; j++) { // loop over columns of a 
+inline void pack_a(int k, const float* a, int lda, float* to) {
+  for(int j=0; j<k; j++) {
     const float *a_ij_ptr = &a[(j*lda)+0]; 
-    *to++ = *a_ij_ptr;
+    *to = *a_ij_ptr;
     *(to+1) = *(a_ij_ptr+1);
     *(to+2) = *(a_ij_ptr+2);
     *(to+3) = *(a_ij_ptr+3);
+    *(to+4) = *(a_ij_ptr+4);
+    *(to+5) = *(a_ij_ptr+5);
+    *(to+6) = *(a_ij_ptr+6);
+    *(to+7) = *(a_ij_ptr+7);
+    to += 8;
   }
 }
 
-void pack_b(int k, const float* b, int lb, float* to) {
+inline void pack_b(int k, const float* b, int ldb, float* to) {
   int i;
-  const float *b_i0_ptr = &b[0], *b_i1_ptr = &b[(1*lb)],
-              *b_i2_ptr = &b[(2*lb)], *b_i3_ptr = &b[(3*lb)],
-              *b_i4_ptr = &b[(4*lb)], *b_i5_ptr = &b[(5*lb)],
-              *b_i6_ptr = &b[(6*lb)], *b_i7_ptr = &b[(7*lb)];
+  const float *b_i0_ptr = &b[0], *b_i1_ptr = &b[(1*ldb)],
+              *b_i2_ptr = &b[(2*ldb)], *b_i3_ptr = &b[(3*ldb)],
+              *b_i4_ptr = &b[(4*ldb)], *b_i5_ptr = &b[(5*ldb)],
+              *b_i6_ptr = &b[(6*ldb)], *b_i7_ptr = &b[(7*ldb)];
   for(i=0; i<k; i++) {
-    *to = *b_i0_ptr++;
-    *(to+1) = *(b_i1_ptr+1);
-    *(to+2) = *(b_i2_ptr+2);
-    *(to+3) = *(b_i3_ptr+3);
-    *(to+4) = *(b_i4_ptr+4);
-    *(to+5) = *(b_i5_ptr+5);
-    *(to+6) = *(b_i6_ptr+6);
-    *(to+7) = *(b_i7_ptr+7);
+    *to     = *b_i0_ptr;
+    *(to+1) = *(b_i1_ptr);
+    *(to+2) = *(b_i2_ptr);
+    *(to+3) = *(b_i3_ptr);
+    *(to+4) = *(b_i4_ptr);
+    *(to+5) = *(b_i5_ptr);
+    *(to+6) = *(b_i6_ptr);
+    *(to+7) = *(b_i7_ptr);
+    to += 8;
+    b_i0_ptr++; b_i1_ptr++; b_i2_ptr++;
+    b_i3_ptr++; b_i4_ptr++; b_i5_ptr++;
+    b_i6_ptr++; b_i7_ptr++;
   }
 }
 
-
-inline void _inner_m256gemm(int m, int n, int k, const float* lhs, int la, const float* rhs, int lb, float* result, int lc, int first) {
-  int i, j;
-  float pa[m*k], pb[k*n];
-  for(j=0; j<n; j+=8) {
-    if(first) pack_b(k, &rhs[(j*lb)], lb, &pb[j*k]);
-    for(i=0; i<m; i+=8) { 
-      if(j==0) pack_a(k, &lhs[i], la, &pa[i*k]);
-      //_16x16_m256_gemm(k, &pa[i*k], 16, &pb[j*k], k, &result[j*n+i], lc); 
-      _8x8_m256_gemm(k, &pa[i*k], 8, &pb[j*k], k, &result[j*n+i], lc); 
-    }
-  }
-}
-
-
-template<int mc, int kc, int m, int n, int k>
-void _m256_gemm(const float* a, const float* b, float* c) {
-  int i, j, p, pb, ib;
-  #pragma omp parallel for shared(a, b, c, i, j, p, pb, ib) default(none) collapse(1) num_threads(24)
-  for(p=0; p<k; p+=kc) {
-    pb = std::min(k-p, kc);
-    for(i=0; i<m; i+=mc) {
-      ib = std::min(m-i, mc);
-      _inner_m256gemm(ib, n, pb, &a[(p*k)+i], m, &b[p], n, &c[i], k, i==0);
+template<int mb=128, int kb=128, int th=1>
+void _m256_gemm(const float* a, const float* b, float* c, int m, int n, int k) {
+  #pragma omp parallel for shared(a, b, c, m, n, k) default(none) collapse(1) num_threads(th)
+  for(int i=0; i<k; i+=kc) {
+    ib = std::min(k-p, kc);
+    float* pb = new alignas(32) float[ib*n];
+    for(int ii=0; ii<m; ii+=mc) {
+      iib = std::min(m-i, mc);
+      float * pa = new alignas(32) float[ib*iib];
+      float* wa = &a[i*k+ii];
+      float* wb = &b[i];
+      for(int iii=0; iii<n; iii+=8) {
+        if(ii==0) pack_b(ib, &wb[iii*n], n, &pb[iii*ib]);
+        for(int iiii=0; iiii<iib; iii+=8) {
+          if(iii==0) pack_a(ib, &wa[iiii], k &pa[iiii*ib]);
+          _8x8_m256_gemm(iib, &pa[iiii*ib], &pb[iii*ib], &c[ii+iii*n+iiii], n);
+        }
+      }
     }
   }
 }
