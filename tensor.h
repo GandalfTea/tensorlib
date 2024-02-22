@@ -340,10 +340,13 @@ class Tensor {
 		};
 
 
-
-		// These are mostly for internal use
+		// mostly for internal use
 		Tensor(std::unique_ptr<T[]> &arr, uint64_t size, sized_array<uint32_t> shape, Device device=CPU)
 			: storage(std::move(arr)), device(device), is_initialized(true), bresolved(true),
+				shape(std::make_unique<View>(View(shape.ptr, shape.size))) {}
+
+		Tensor(T* arr, uint64_t size, sized_array<uint32_t> shape, Device device=CPU)
+			: storage(arr), device(device), is_initialized(true), bresolved(true),
 				shape(std::make_unique<View>(View(shape.ptr, shape.size))) {}
 
 
@@ -534,10 +537,10 @@ class Tensor {
     static Tensor<T> dot(Tensor<T> &lhs, Tensor<T> &rhs, int m, int n, int k) {
       if(lhs.ndim() == 2 && rhs.ndim() == 2) {
         sized_array<uint32_t> s {std::unique_ptr<uint32_t[]>(new uint32_t[2]), 2};
-        s.ptr[0] = m;
-        s.ptr[1] = n;
-        std::unique_ptr<T[]> data = std::unique_ptr<T[]>(new T[s.ptr[0]*s.ptr[1]]);
-        Tensor<T> ret = Tensor<T>(data, s.ptr[0]*s.ptr[1], s);
+        s.ptr[0] = n;
+        s.ptr[1] = m;
+        T* data = new alignas(32) T[n*m];
+        Tensor<T> ret = Tensor<T>(data, n*m, s);
 
 #if DEBUG
         auto start = std::chrono::high_resolution_clock::now();
