@@ -521,13 +521,11 @@ class Tensor {
     // SGEMMS
 /*-------------------------------------------------*/
 
-    // naive mul for now 
-    template<uint32_t rows, uint32_t cols, uint32_t in>
-    static Tensor<T> dot(Tensor<T> &lhs, Tensor<T> &rhs) {
+    static Tensor<T> dot(Tensor<T> &lhs, Tensor<T> &rhs, int m, int n, int k) {
       if(lhs.ndim() == 2 && rhs.ndim() == 2) {
         sized_array<uint32_t> s {std::unique_ptr<uint32_t[]>(new uint32_t[2]), 2};
-        s.ptr[0] = rows;
-        s.ptr[1] = cols;
+        s.ptr[0] = m;
+        s.ptr[1] = n;
         std::unique_ptr<T[]> data = std::unique_ptr<T[]>(new T[s.ptr[0]*s.ptr[1]]);
         Tensor<T> ret = Tensor<T>(data, s.ptr[0]*s.ptr[1], s);
 
@@ -535,17 +533,18 @@ class Tensor {
         auto start = std::chrono::high_resolution_clock::now();
 #endif
 #ifdef AVX_CPU_GEMMS
-        _m256_gemm<128, 128, rows, cols, in>(lhs.data().get(), rhs.data().get(), ret.data().get());
+        _m256_gemm<128, 128>(lhs.data().get(), rhs.data().get(), ret.data().get(), m, n, k);
 #else
-        lhs.tgemm<64, 16, rows, cols, in>(lhs.data().get(), rhs.data().get(), ret.data().get());
+        // made m n and k not templates
+        //lhs.tgemm<64, 16, m, n, k>(lhs.data().get(), rhs.data().get(), ret.data().get());
 #endif
         //lhs.tgemm<64, rows, cols, in>(lhs.data().get(), rhs.data().get(), ret.data().get());
 #if DEBUG
         auto end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double, std::milli> ms_double = end - start;
-				std::cout << "<sgemm GFLOP=" << ((long)2*rows*cols*in)/1e9 << " runtime=" << (float)ms_double.count() << "ms  ";
-				std::cout << ((long double)((long)2*rows*cols*in)/(ms_double.count()/1000))/1e9 << " GFLOPS load=" << 
-								     bytes_to_str((rows*in+in*cols)*sizeof(float)) << ">" << std::endl;
+				std::cout << "<sgemm GFLOP=" << ((long)2*m*n*k)/1e9 << " runtime=" << (float)ms_double.count() << "ms  ";
+				std::cout << ((long double)((long)2*m*n*k)/(ms_double.count()/1000))/1e9 << " GFLOPS load=" << 
+								     bytes_to_str((m*k+k*n)*sizeof(float)) << ">" << std::endl;
 #endif
         return ret;
       }
