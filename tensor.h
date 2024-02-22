@@ -11,11 +11,13 @@
 #endif
 
 #define DEBUG 3
+#define EPSILON 0.00001
 #if DEBUG > 2
 #include <omp.h>
 #include <iomanip>
 #include <iostream>
 #include <typeinfo> 
+#include <type_traits> // arange std::is_floating_point
 #include <chrono>
 template<typename T>
 std::string to_string_with_precision(const T val, const uint32_t n=6) {
@@ -71,6 +73,10 @@ struct sized_array {
 	std::shared_ptr<T[]> ptr = nullptr;
 	size_t size = 0;
 };
+
+bool constexpr lt_f32 (float a, float b, float epsilon=EPSILON) { return (b - a) > ( (fabs(a) < fabs(b) ? fabs(b) : fabs(a)) * epsilon); }
+bool constexpr eql_f32 (float a, float b, float epsilon=EPSILON) { return fabs(a-b) <= ( (fabs(a) > fabs(b) ? fabs(b) : fabs(a)) * epsilon); }
+bool constexpr aeql_f32(float a, float b, float epsilon=EPSILON) { return fabs(a-b) <= ( (fabs(a) < fabs(b) ? fabs(b) : fabs(a)) * epsilon); }
 
 
 // VIEW
@@ -414,7 +420,11 @@ class Tensor {
 		// auto a = Tensor<float>::arange(50);
 		// TODO: Allow going backwards
 		static Tensor<T> arange(T stop, T start=0, T step=1, Device device=CPU) {
-			if(stop < start || step <= 0 || step >= stop) throw std::runtime_error("Invalid Arguments.");
+      if(std::is_floating_point<T>::value) {
+			  if(lt_f32((float)stop, (float)start) || lt_f32((float)step, 0.f) || aeql_f32((float)step, 0.f) || lt_f32((float)stop, 
+                  (float)step) || aeql_f32((float)step, (float)stop)) 
+          throw std::runtime_error("Invalid Arguments.");
+      } else if(stop < start || step <= 0 || step >= stop) throw std::runtime_error("Invalid Arguments.");
 			uint32_t size = (std::abs(stop)+std::abs(start))/step;
 			std::unique_ptr<T[]> data = std::make_unique<T[]>(size);
 			for(size_t i=0; i < size; i++) {
@@ -503,9 +513,9 @@ class Tensor {
 		// TODO: These might allow for unwanted changes to the data. Maybe clone?
 /*-------------------------------------------------*/
 		
-		bool reshape(std::initializer_list<int32_t> nview) { return this->execute_movement_op(nview, RESHAPE); }
-		bool permute(std::initializer_list<uint32_t> nview) { return this->execute_movement_op(nview, PERMUTE); }
-		bool expand(std::initializer_list<int32_t> nview) { return this->execute_movement_op(nview, EXPAND); }
+		Tensor<T> reshape(std::initializer_list<int32_t> nview) { return this->execute_movement_op(nview, RESHAPE); }
+		Tensor<T> permute(std::initializer_list<uint32_t> nview) { return this->execute_movement_op(nview, PERMUTE); }
+		Tensor<T> expand(std::initializer_list<int32_t> nview) { return this->execute_movement_op(nview, EXPAND); }
 
 		std::unique_ptr<uint32_t[]> stride(std::unique_ptr<uint32_t[]>& idxs, uint32_t len) {
 			const uint64_t startidx = this->accumulate_strides(idxs, len);
@@ -707,8 +717,8 @@ class Tensor {
 			}
 		}
 
-		bool execute_movement_op(std::initializer_list<int32_t> nview, MovementOPs op) {
-			if(op != RESHAPE && op != EXPAND) return 0;
+		Tensor<T> execute_movement_op(std::initializer_list<int32_t> nview, MovementOPs op) {
+			if(op != RESHAPE && op != EXPAND) throw std::invalid_argument("Invalid Movement OP Arguments"); 
 			sized_array<int32_t> s { std::make_unique<int32_t[]>(nview.size()), nview.size() };
 			uint32_t i = 0;
 			for(const auto& x : nview) s.ptr[i++] = x;
@@ -716,29 +726,30 @@ class Tensor {
 			op_ret ret;
 			switch(op) {
         case RESHAPE:
-			    return this->return_from_err(this->shape->reshape(s.ptr, s.size));
+          this->shape->reshape(s.ptr, s.size);
           break;
         case EXPAND:
-					return this->return_from_err(this->shape->expand(s.ptr, s.size));
+          this->shape->expand(s.ptr, s.size);
 					break;
       }
+      return *this;
 		}
 
-		bool execute_movement_op(std::initializer_list<uint32_t> nview, MovementOPs op) {
+		Tensor<T> execute_movement_op(std::initializer_list<uint32_t> nview, MovementOPs op) {
 			sized_array<uint32_t> shape { std::make_unique<uint32_t[]>(nview.size()), nview.size() };
 			uint32_t i = 0;
 			for(const auto& x : nview) shape.ptr[i++] = x;
 			op_ret ret;
 			switch(op) {
 				case PERMUTE:
-					ret = this->shape->permute(shape.ptr, shape.size);
+					this->shape->permute(shape.ptr, shape.size);
 					break;
 				case SHRINK:
 				case FLIP:
 				case PAD:
-					return 0; // Not implemented yet
+					throw std::system_error("Functions not implemented"); // Not implemented yet
 			}
-			return this->return_from_err(ret);
+			return *this;
 		}
 
 		inline uint64_t accumulate_strides (std::unique_ptr<uint32_t[]>& arr, size_t len) {
