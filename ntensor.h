@@ -7,6 +7,7 @@
 
 #define DEBUG 3
 #define EPSILON 0.0001
+#define DATA_ALIGNMENT 32 // avx 256-bit
 
 #include <string>
 #include <memory>
@@ -137,7 +138,7 @@ class Tensor {
       // There doesn't seem to be a way to check memory block alignment
       // of argument data, so this will run every time
       #ifdef FORCE_ALIGN
-        storage = static_cast<T*>( aligned_alloc(32, size*sizeof(T)) );
+        storage = static_cast<T*>( aligned_alloc(DATA_ALIGNMENT, size*sizeof(T)) );
         for(size_t i=0; i<size; i++) storage[i] = data[i]; 
       #else
         storage = &data[0];
@@ -149,7 +150,7 @@ class Tensor {
     {
       if(size != view->elem) throw std::length_error(std::to_string(size)+" elements do not fit inside of given shape.");
       #ifdef FORCE_ALIGN
-        storage = static_cast<T*>( aligned_alloc(32, size*sizeof(T)) );
+        storage = static_cast<T*>( aligned_alloc(DATA_ALIGNMENT, size*sizeof(T)) );
         for(size_t i=0; i<size; i++) storage[i] = data[i]; 
       #else
         storage = &data[0];
@@ -164,7 +165,7 @@ class Tensor {
         throw std::length_error("Elements do not fit the given shape. To mismatch shape, give shpmismatch=true.");
       else if (data.size() == view->elem) is_allocated=true; // otherwise virtual
       size_t i=0;
-      storage = static_cast<T*>( aligned_alloc(32, data.size()*sizeof(T)) );
+      storage = static_cast<T*>( aligned_alloc(DATA_ALIGNMENT, data.size()*sizeof(T)) );
       for(const T& x : data) storage[i++] = x;
     }
 
@@ -201,7 +202,7 @@ class Tensor {
            || eql_f32((T)step, (T)stop)) throw std::runtime_error("Invalid arguments in arange().");
       } else if(stop < start || step <= 0 || step >= stop) throw std::runtime_error("Invalid arguments in arange().");
 			uint32_t size = (std::abs(stop)+std::abs(start))/step;
-      T* nd = static_cast<T*>( aligned_alloc(32, size*sizeof(T)) );
+      T* nd = static_cast<T*>( aligned_alloc(DATA_ALIGNMENT, size*sizeof(T)) );
 			for(size_t i=0; i < size; i++) nd[i] = start + i*step;
       return Tensor<T>(nd, size, {size}, grad, device);
     }
@@ -211,7 +212,7 @@ class Tensor {
                            uint32_t seed=0, bool grad=false, Device device=CPU) 
     {
       uint64_t elem = count_elem(shp);
-      T* nd = static_cast<T*>( aligned_alloc(32, elem*sizeof(T)) );
+      T* nd = static_cast<T*>( aligned_alloc(DATA_ALIGNMENT, elem*sizeof(T)) );
       switch(dist){
         case NORMAL: nd = f32_generate_box_muller_normal_dist(elem, up, down, seed); break;
         case UNIFORM: nd = f32_generate_uniform_dist(elem, up, down, seed); break;
@@ -222,7 +223,7 @@ class Tensor {
 
     // auto b = Tensor<float>::like(a).randn();
     void randn(T up=(T)1, T down=(T)0, Distribution dist=NORMAL, uint32_t seed=0, bool grad=false, Device device=CPU) {
-      storage = static_cast<T*>( aligned_alloc(32, this->view->elem*sizeof(T)) );
+      storage = static_cast<T*>( aligned_alloc(DATA_ALIGNMENT, this->view->elem*sizeof(T)) );
       switch(dist){
         case NORMAL: storage = f32_generate_box_muller_normal_dist(this->view->elem, up, down, seed); break;
         case UNIFORM: storage = f32_generate_uniform_dist(this->view->elem, up, down, seed); break;
@@ -235,7 +236,7 @@ class Tensor {
     static Tensor<T> eye(uint32_t size, uint32_t dims=2, bool resolved=false, Device device=CPU) {
       if(size < 2 || dims < 2) throw std::runtime_error("Cannot create an identity tensor of less then 2 dimensions or elements.");
       #ifdef FORCE_ALLOCATE
-        T* nd = static_cast<T*>( aligned_alloc(32, size*dims*sizeof(T)) );
+        T* nd = static_cast<T*>( aligned_alloc(DATA_ALIGNMENT, size*dims*sizeof(T)) );
         for(size_t i=0; i<size; i++) nd[i*size+i]=size; 
         uint32_t* shp = new uint32_t[dims];
         for(size_t i=0; i<dims; i++) shp[i]=size;
@@ -243,7 +244,7 @@ class Tensor {
         ret.is_allocated=true;
         ret.is_initialized=true;
       #else
-        T* nd = static_cast<T*>( aligned_alloc(32, sizeof(T)) );
+        T* nd = new T[1];
         uint32_t* shp = new uint32_t[dims];
         for(size_t i=0; i<dims; i++) shp[i]=size;
         Tensor<T> ret = Tensor<T>(nd, 1, shp, dims, false, device);
@@ -291,7 +292,7 @@ class Tensor {
  			static std::mt19937 rng(std::random_device{}());
 			if(seed!=0) rng.seed(seed);
 			static std::uniform_real_distribution<> dist(down, up);
-      float* ret = static_cast<T*>( aligned_alloc(32, count*sizeof(float)) );
+      float* ret = static_cast<T*>( aligned_alloc(DATA_ALIGNMENT, count*sizeof(float)) );
 			if(bepsilon) {
 				for(size_t i=0; i<count; i++) {
 					do {
@@ -306,7 +307,7 @@ class Tensor {
  			static std::mt19937 rng(std::random_device{}());
 			if(seed!=0) rng.seed(seed);
 			static std::chi_squared_distribution<float> dist(2);
-      float* ret = static_cast<T*>( aligned_alloc(32, count*sizeof(float)) );
+      float* ret = static_cast<T*>( aligned_alloc(DATA_ALIGNMENT, count*sizeof(float)) );
 			for(size_t i=0; i<count; i++) { 
 				float n = dist(rng);
 				if(n >= down && n <= up) ret[i] = n;  
@@ -319,7 +320,7 @@ class Tensor {
 			if(count % 2 != 0) count++; 
 			constexpr float epsilon = std::numeric_limits<float>::epsilon();
 			constexpr float two_pi = 2.0 * M_PI;
-      float* ret = static_cast<T*>( aligned_alloc(32, count*sizeof(float)) );
+      float* ret = static_cast<T*>( aligned_alloc(DATA_ALIGNMENT, count*sizeof(float)) );
 			auto u1 = Tensor<>::f32_generate_uniform_distribution(count/2, up, down, seed, true, epsilon);
 			auto u2 = Tensor<>::f32_generate_uniform_distribution(count/2, up, down, seed);
 			for(size_t i=0, j=0; i<count/2; i++, j+=2) {
