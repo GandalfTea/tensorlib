@@ -160,8 +160,8 @@ class Tensor {
       #endif
     }
 
-    Tensor(T* data, uint64_t size, uint32_t* shape, size_t slen, bool grad=false, Device dev=CPU)
-      : mview(new View(&shape[0], slen)), disklen(size), bgrad(grad), mdevice(dev), binitialized(true), ballocated(true) 
+    Tensor(T* data, uint64_t size, uint32_t* shape, size_t slen, bool grad=false, Device dev=CPU, bool sub=false)
+      : mview(new View(&shape[0], slen)), disklen(size), bgrad(grad), mdevice(dev), binitialized(true), ballocated(true), bsub(sub) 
     {
       if(size != mview->elem) throw std::length_error(std::to_string(size)+" elements do not fit inside of given shape.");
       #ifdef FORCE_ALIGN
@@ -223,11 +223,14 @@ class Tensor {
       ret.mview->strides[0] = 0;
       return ret;
     }
+
+/*
     static Tensor<T> fill(T* shp, uint64_t len, T& v, bool grad=false, Device device=CPU) {
       Tensor<T> ret = Tensor<T>({v}, shp, len, true, grad, device);
       ret.mview->strides[0] = 0;
       return ret;
     }
+*/
 
     // auto b = Tensor<>::like(a).fill(69.f);
     void fill(T v) {
@@ -305,16 +308,16 @@ class Tensor {
 
     // new mview, no data ptr 
     static Tensor<T> like(Tensor<T>& from) {
-      uint32_t* shp = new uint32_t[from->mview->numdim];
-      for(size_t i=0; i<from->mview->numdim; i++) shp[i] = from->mview->view[i];
-      return Tensor<T>(shp, from->mview->numdim, from->mdevice);
+      uint32_t* shp = new uint32_t[from.mview->numdim];
+      for(size_t i=0; i<from.mview->numdim; i++) shp[i] = from.mview->view[i];
+      return Tensor<T>(shp, from.mview->numdim, from.mdevice);
     }
 
     // new mview, same data ptr
     Tensor<T> copy() {
       uint32_t* shp = new uint32_t[mview->numdim];
       for(size_t i=0; i<mview->numdim; i++) shp[i] = mview->view[i];
-      return Tensor<T>(&mstorage[0], disklen, &shp[0], mview->numdim, bgrad, mdevice);
+      return Tensor<T>(&mstorage[0], disklen, &shp[0], mview->numdim, bgrad, mdevice, true);
     }
 
     // new mview, new data ptr 
@@ -374,7 +377,7 @@ class Tensor {
 
     // Static data generation /*-------------------------------------------------*/
 
-		static std::unique_ptr<float[]> f32_generate_uniform_distribution(uint32_t count, float up=1.f, float down=0.f, double seed=0, 
+		static float* f32_generate_uniform_distribution(uint32_t count, float up=1.f, float down=0.f, double seed=0, 
 										                                                  bool bepsilon=false, float epsilon=0) 
 		{
  			static std::mt19937 rng(std::random_device{}());
@@ -391,7 +394,7 @@ class Tensor {
 			return ret;
 		}
 
-		static std::unique_ptr<float[]> f32_generate_chi_squared_distribution(uint32_t count, float up=1.f, float down=0.f, double seed=0) {
+		static float* f32_generate_chi_squared_distribution(uint32_t count, float up=1.f, float down=0.f, double seed=0) {
  			static std::mt19937 rng(std::random_device{}());
 			if(seed!=0) rng.seed(seed);
 			static std::chi_squared_distribution<float> dist(2);
@@ -404,7 +407,7 @@ class Tensor {
 		}
 
 		// If count is odd, it adds an extra element
-		static std::unique_ptr<float[]> f32_generate_box_muller_normal_distribution(uint32_t count, float up=1.f, float down=0.f, double seed=0) {
+		static float* f32_generate_box_muller_normal_distribution(uint32_t count, float up=1.f, float down=0.f, double seed=0) {
 			if(count % 2 != 0) count++; 
 			constexpr float epsilon = std::numeric_limits<float>::epsilon();
 			constexpr float two_pi = 2.0 * M_PI;
