@@ -3,31 +3,26 @@ Lightweight header-only tensor library for C++17 and later.
 
 &nbsp;
 
-### Data initialization
+### Empty initialisation
+Create a virtual tensor and allocate the memory:
+```c++
+auto a = Tensor<float>({1024, 1024}).allocate();
+```
+All the memory allocated by the library is aligned according to the macro `DATA_ALIGNMENT` defaulted to 32 bytes for AVX-256, unless the size of the block is smaller then the alignment requirement.
 
-The default constructor uses a `std::unique_ptr<T[]>` to an array with elements of type `T`. This requires the total number of elements in the tensor as second argument `size`. Shape is either a `std::initializer_list<uint32_t>` or a `tensor::sized_array<uint32_t>`. Data allocation is left to the user.
+&nbsp;
+
+
+### Data initialisation
+
+Constructors accept `T*` to allocated data. If the macro `FORCE_ALIGNMENT` is defined, values will be copied into an aligned memory block. Otherwise, all memory blocks passed into tensor constructors must be `malloc`ed because garbage collection is handled with `free()`. The shape can be either an `initializer_list` or an array.
 ```c++
-Tensor(std::unique_ptr<T[]> &arr, size_t size, std::initializer_list<uint32_t> shape, Device device=CPU);
-Tensor(std::unique_ptr<T[]> &arr, size_t size, sized_array<uint32_t> shape, Device device=CPU);
-```
-* `std::initializer_list<uint32_t>`
-```c++
-auto data = std::unique_ptr<float[]>( new float[2048*2048]() );
-auto a = Tensor<float>(data, 2048*2048, {2, 1024, 2048});
-```
-* `tensor::sized_array<T>` is used to programatically size a tensor of known dimensions number but unknown dimensions sizes. It explicitly tracks the number of dimensions in `size`.
-```c++
-template<typename T>
-struct tensor::sized_array {
-  std::shared_ptr<T[]> ptr = nullptr;
-  size_t size = 0;
-};
+Tensor(T* data, uint64_t size, std::initializer_list<uint32_t> shp, bool grad=false, Device dev=CPU)
+Tensor(T* data, uint64_t size, uint32_t* shape, size_t slen, bool grad=false, Device dev=CPU)
 ```
 ```c++
-sized_array<uint32_t> s { std::unique_ptr<uint32_t[]>(new uint32_t[2]()), 2};
-s.ptr[0] = 2;
-s.ptr[1] = 3;
-auto b = Tensor<b>(data, 2*3, s);
+float* data = static_cast<float*>( aligned_alloc(32, 1024*1024*sizeof(float)) );
+auto a = Tensor<float>(data, 1024*1024, {1024/2, 2, 1024});
 ```
 
 &nbsp;
@@ -37,6 +32,7 @@ Elements can also be entered manually using an `std::initializer_list<T>` in whi
 auto a = Tensor<float>({1, 2, 3, 4, 5}, {2, 3});
 auto b = Tensor<float>({1, 2, 3, 4, 5}, s); // sized_array
 ```
+
 &nbsp;
 
 ### Helpers and Getters
