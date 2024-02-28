@@ -207,7 +207,6 @@ class Tensor {
       : binitialized(t.binitialized), ballocated(t.ballocated), bgrad(t.bgrad), beye(t.beye), bsub(t.bsub),
         mdevice(t.mdevice), disklen(t.disklen), mview(t.mview), mstorage(t.mstorage), grad(t.grad)
     {
-      // prevent deallocation
       t.mview = nullptr;
       t.mstorage = nullptr;
       t.grad = nullptr;
@@ -226,7 +225,7 @@ class Tensor {
     const uint32_t ndim() { return mview->numdim; }
     const uint64_t numel() { return mview->elem; }
     const uint32_t memsize() { return disklen; }
-    const uint32_t* view() { return &(mview->view)[0]; }
+    const uint32_t* shape() { return &(mview->view)[0]; }
     const uint32_t* strides() { return &(mview->strides)[0]; }
     const uint32_t device() { return mdevice; }
     bool is_initialized() { return binitialized; }
@@ -234,6 +233,7 @@ class Tensor {
     bool is_eye() { return beye; }
     bool is_sub() { return bsub; }
     bool has_grad() { return bgrad; }
+    T item() { if(disklen == 1 && mview->elem == 1) return mstorage[0]; }
 
 		// Constructor helpers /*-------------------------------------------------*/
 
@@ -242,6 +242,7 @@ class Tensor {
       if(binitialized) throw std::runtime_error("Attempted to allocate() initialized tensor.");
       T* nd = alloc<T>(mview->elem);
       if(bsub) for(size_t i=0; i<disklen; i++) nd[i] = mstorage[i];
+      disklen = mview->elem;
       ballocated = true;
       binitialized = true;
       mstorage = &nd[0];
@@ -263,14 +264,17 @@ class Tensor {
     }
 */
 
+    // auto a = Tensor<float>({1024, 1024}).fill(0.f);
     // auto b = Tensor<>::like(a).fill(69.f);
-    void fill(T v) {
+    Tensor<T>& fill(T v) {
       if(mstorage) throw std::runtime_error("Cannot fill initialized tensor."); 
-      mstorage = new T[1];
+      mstorage = alloc<T>(1);
       mstorage[0] = v;
       for(size_t i=0; i<this->mview->numdim; i++) this->mview->strides[i] = 0;
       this->binitialized = true;
       this->ballocated = false;
+      disklen=1;
+      return *this;
     }
 
     // auto a = Tensor<float>::arange(1024*1024, 0).reshape({1024, 1024});
@@ -293,21 +297,27 @@ class Tensor {
       uint64_t elem = count_elem(shp);
       T* nd = static_cast<T*>( aligned_alloc(DATA_ALIGNMENT, elem*sizeof(T)) );
       switch(dist){
-        case NORMAL: nd = f32_generate_box_muller_normal_dist(elem, up, down, seed); break;
-        case UNIFORM: nd = f32_generate_uniform_dist(elem, up, down, seed); break;
-        case CHI_SQUARED: nd = f32_generate_chi_squared_dist(elem, up, down, seed); break;
+        case NORMAL: f32_generate_box_muller_normal_distribution(&nd[0], elem, up, down, seed); break;
+        case UNIFORM: f32_generate_uniform_distribution(&nd[0], elem, up, down, seed); break;
+        case CHI_SQUARED: f32_generate_chi_squared_distrubution(&nd[0], elem, up, down, seed); break;
       }
       return Tensor<T>(nd, elem, shp, grad, mdevice);
     }
 
     // auto b = Tensor<float>::like(a).randn();
-    void randn(T up=(T)1, T down=(T)0, randn_dist dist=NORMAL, uint32_t seed=0, bool grad=false, Device mdevice=CPU) {
-      mstorage = static_cast<T*>( aligned_alloc(DATA_ALIGNMENT, this->mview->elem*sizeof(T)) );
+    Tensor<T>& randn(T up=(T)1, T down=(T)0, randn_dist dist=NORMAL, uint32_t seed=0, bool grad=false, Device mdevice=CPU) {
+      if(mstorage) throw std::runtime_error("Cannot randn() initialized tensor."); 
+      size_t count = (mview->elem % 2 == 0) ? mview->elem : mview->elem+1; // box muller requires %2
+      mstorage = alloc<T>(count);
       switch(dist){
-        case NORMAL: mstorage = f32_generate_box_muller_normal_dist(this->mview->elem, up, down, seed); break;
-        case UNIFORM: mstorage = f32_generate_uniform_dist(this->mview->elem, up, down, seed); break;
-        case CHI_SQUARED: mstorage = f32_generate_chi_squared_dist(this->mview->elem, up, down, seed); break;
+        case NORMAL: f32_generate_box_muller_normal_distribution(&mstorage[0], this->mview->elem, up, down, seed); break;
+        case UNIFORM: f32_generate_uniform_distribution(&mstorage[0], this->mview->elem, up, down, seed); break;
+        case CHI_SQUARED: f32_generate_chi_squared_distribution(&mstorage[0], this->mview->elem, up, down, seed); break;
       }
+      binitialized=true;
+      ballocated=true;
+      disklen=mview->elem;
+      return *this;
     }
 
     // by default not allocated into memory. value is decided when indexing
@@ -323,7 +333,7 @@ class Tensor {
         ret.ballocated=true;
         ret.binitialized=true;
       #else
-        T* nd = new T[1];
+        T* nd = alloc<T>(1);
         uint32_t* shp = new uint32_t[dims];
         for(size_t i=0; i<dims; i++) shp[i]=size;
         Tensor<T> ret = Tensor<T>(nd, 1, shp, dims, false, mdevice);
@@ -379,7 +389,7 @@ class Tensor {
       }
       uint64_t start_idx=0;
       for(size_t i=0; i<idx_len; i++) {
-        if(idxs[i] >= mview->view[i]) throw std::invalid_argument("Invalid index for dimension " + std::to_string(i)+".");
+        if(idxs[i] >= mview->view[i]) throw std::invalid_argument("Invalid index for dimension " + std::to_string(mview->view[i])+".");
         start_idx += mview->strides[i]*idxs[i];
       }
       if(idx_len < mview->numdim) {
@@ -392,65 +402,49 @@ class Tensor {
       return Tensor<T>({mstorage[start_idx]}, {1}, false, grad, mdevice);
     }
 
-    // TODO merge this func with allocate on virtual tensors
-    // allocate new data for sub-tensor
-    // auto b = a(1).detatch()
-    void detatch() {
-      if(!bsub) std::runtime_error("Call of .detatch() on root tensor.");
-      T* nd;
-      if(sizeof(T)*view->elem > DATA_ALIGNMENT) nd = static_cast<T*>( aligned_alloc(DATA_ALIGNMENT, view->elem*sizeof(T)) );
-      else nd = static_cast<T*>( malloc(view->elem*sizeof(T)) );
-      for(size_t i=0; i<view->elem; i++) nd[i] = mstorage[i];
-      mstorage = &nd[0];
-      bsub = false;
-      endptr = nullptr;
-    }
-
     // Static data generation /*-------------------------------------------------*/
 
-		static float* f32_generate_uniform_distribution(uint32_t count, float up=1.f, float down=0.f, double seed=0, 
-										                                                  bool bepsilon=false, float epsilon=0) 
+		static void f32_generate_uniform_distribution(float* to, uint32_t count, float up=1.f, float down=0.f, double seed=0, 
+										                                bool bepsilon=false, float epsilon=0) 
 		{
  			static std::mt19937 rng(std::random_device{}());
 			if(seed!=0) rng.seed(seed);
 			static std::uniform_real_distribution<> dist(down, up);
-      float* ret = static_cast<T*>( aligned_alloc(DATA_ALIGNMENT, count*sizeof(float)) );
 			if(bepsilon) {
 				for(size_t i=0; i<count; i++) {
 					do {
-						ret[i] = dist(rng);
-					} while (ret[i] <= epsilon);
+						to[i] = dist(rng);
+					} while (to[i] <= epsilon);
 				}
-			} else for(size_t i=0; i<count; i++) ret[i] = dist(rng);
-			return ret;
+			} else for(size_t i=0; i<count; i++) to[i] = dist(rng);
 		}
 
-		static float* f32_generate_chi_squared_distribution(uint32_t count, float up=1.f, float down=0.f, double seed=0) {
+		static void f32_generate_chi_squared_distribution(float* to, uint32_t count, float up=1.f, float down=0.f, double seed=0) {
  			static std::mt19937 rng(std::random_device{}());
 			if(seed!=0) rng.seed(seed);
 			static std::chi_squared_distribution<float> dist(2);
-      float* ret = static_cast<T*>( aligned_alloc(DATA_ALIGNMENT, count*sizeof(float)) );
 			for(size_t i=0; i<count; i++) { 
 				float n = dist(rng);
-				if(n >= down && n <= up) ret[i] = n;  
+				if(n >= down && n <= up) to[i] = n;  
 			}
-			return ret;
 		}
 
 		// If count is odd, it adds an extra element
-		static float* f32_generate_box_muller_normal_distribution(uint32_t count, float up=1.f, float down=0.f, double seed=0) {
+		static void f32_generate_box_muller_normal_distribution(float* to, uint32_t count, float up=1.f, float down=0.f, double seed=0) {
 			if(count % 2 != 0) count++; 
 			constexpr float epsilon = std::numeric_limits<float>::epsilon();
 			constexpr float two_pi = 2.0 * M_PI;
-      float* ret = static_cast<T*>( aligned_alloc(DATA_ALIGNMENT, count*sizeof(float)) );
-			auto u1 = Tensor<>::f32_generate_uniform_distribution(count/2, up, down, seed, true, epsilon);
-			auto u2 = Tensor<>::f32_generate_uniform_distribution(count/2, up, down, seed);
+      float* u1 = alloc<float>(count/2);
+      float* u2 = alloc<float>(count/2);
+			Tensor<>::f32_generate_uniform_distribution(&u1[0], count/2, up, down, seed, true, epsilon);
+			Tensor<>::f32_generate_uniform_distribution(&u2[0], count/2, up, down, seed);
 			for(size_t i=0, j=0; i<count/2; i++, j+=2) {
 				auto mag = std::sqrt(-2.0 * std::log(u1[i]));
-				ret[j]   = mag * std::sin(two_pi * u2[i]);
-				ret[j+1] = mag * std::cos(two_pi * u2[i]);
+				to[j]   = mag * std::sin(two_pi * u2[i]);
+				to[j+1] = mag * std::cos(two_pi * u2[i]);
 			}
-			return ret;
+      free(u1);
+      free(u2);
 		}
     
     // Helpers
@@ -466,7 +460,7 @@ class Tensor {
 template<typename T>
 inline std::ostream& operator<<(std::ostream& outs, tensorlib::Tensor<T>& tensor) {
 	std::string repr = "<Tensor view([";
-	auto shape = tensor.view();
+	auto shape = tensor.shape();
   auto strides = tensor.strides();
   std::string str="";
 	for(size_t i=0; i < tensor.ndim(); i++) {
