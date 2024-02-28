@@ -116,6 +116,15 @@ struct View {
   }
 };
 
+
+// float* data = tensorlib::allocate<float>(N*N);
+template<typename T>
+T* alloc(size_t size) {
+  if(sizeof(T)*size > DATA_ALIGNMENT) return static_cast<T*>( aligned_alloc(DATA_ALIGNMENT, size*sizeof(T)) );
+  else return static_cast<T*>( malloc(size*sizeof(T)) );
+}
+
+
 template<typename T=float>
 class Tensor {
 
@@ -194,6 +203,16 @@ class Tensor {
       for(const T& x : data) mstorage[i++] = x;
     }
 
+    constexpr Tensor(Tensor<T>& t) 
+      : binitialized(t.binitialized), ballocated(t.ballocated), bgrad(t.bgrad), beye(t.beye), bsub(t.bsub),
+        mdevice(t.mdevice), disklen(t.disklen), mview(t.mview), mstorage(t.mstorage), grad(t.grad)
+    {
+      // prevent deallocation
+      t.mview = nullptr;
+      t.mstorage = nullptr;
+      t.grad = nullptr;
+    }
+
     // Destructors
     ~Tensor() {
       if(mstorage && !bsub) free(mstorage);
@@ -203,19 +222,31 @@ class Tensor {
 
     // Getters /*-------------------------------------------------------------*/
 
-    const T* storage() { return &mstorage[0]; }
+    const T* storage() { return (mstorage) ? &mstorage[0] : static_cast<T*>(nullptr); }
     const uint32_t ndim() { return mview->numdim; }
     const uint64_t numel() { return mview->elem; }
-    const uint32_t memalloc() { return disklen; }
+    const uint32_t memsize() { return disklen; }
     const uint32_t* view() { return &(mview->view)[0]; }
     const uint32_t* strides() { return &(mview->strides)[0]; }
     const uint32_t device() { return mdevice; }
     bool is_initialized() { return binitialized; }
     bool is_allocated() { return ballocated; }
     bool is_eye() { return beye; }
+    bool is_sub() { return bsub; }
     bool has_grad() { return bgrad; }
 
 		// Constructor helpers /*-------------------------------------------------*/
+
+    // for virtual tensors and sub-tensors
+    Tensor<T>& allocate() {
+      if(binitialized) throw std::runtime_error("Attempted to allocate() initialized tensor.");
+      T* nd = alloc<T>(mview->elem);
+      if(bsub) for(size_t i=0; i<disklen; i++) nd[i] = mstorage[i];
+      ballocated = true;
+      binitialized = true;
+      mstorage = &nd[0];
+      return *this;
+    }
 
     // auto a = Tensor<>::fill({2048, 2048}, 69.f);
     static Tensor<T> fill(std::initializer_list<uint32_t> shp, T& v, bool grad=false, Device device=CPU) {
@@ -458,7 +489,7 @@ inline std::ostream& operator<<(std::ostream& outs, tensorlib::Tensor<T>& tensor
   } else if (!tensor.is_initialized()) {
     repr += ", disk=" + std::to_string(sizeof(tensor)) + " B";
   } else {
-    repr += ", disk=" + bytes_to_str(tensor.memalloc()*sizeof(tensor.storage()[0]) + sizeof(tensor));
+    repr += ", disk=" + bytes_to_str(tensor.memsize()*sizeof(tensor.storage()[0]) + sizeof(tensor));
   }
   repr += (tensor.is_initialized()) ? "" : ", is_initialized=false";
   repr += (!tensor.is_initialized()) ? "" : (tensor.is_allocated()) ? "" : ", is_allocated=false";
