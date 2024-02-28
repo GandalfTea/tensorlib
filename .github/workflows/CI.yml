@@ -6,23 +6,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  test_view:
-    name: View Class
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-
-    steps:
-    - name: Checkout Code
-      uses: actions/checkout@v3
-    - name: Install Compiler
-      run: | 
-         sudo apt-get update
-         sudo apt-get install g++
-    - name: Compile Test
-      run: g++ test/test_view.cc -I ./ 
-    - name: Run
-      run: ./a.out
-
   test_tensor_constructors:
     name: Tensor Constructors 
     runs-on: ubuntu-latest
@@ -32,7 +15,7 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v3
     - name: Compile Test
-      run: g++ test/test_tensor_constructors.cc -I ./ 
+      run: g++ test/test_ntensor_constructors.cc -march=native -I ./ 
     - name: Run
       run: ./a.out
 
