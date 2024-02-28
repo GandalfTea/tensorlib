@@ -119,8 +119,8 @@ TEST_CASE("Virtual Tensors") {
       CHECK_NOTHROW(a(N-1));
       CHECK_NOTHROW(a(N-1, N-1));
     } 
-#ifdef __AVX__
     SECTION("alignmet") {
+#ifdef __AVX__
       SECTION("AVX-256") {
         Tensor<float> a = Tensor<float>({N, N}).allocate();
         CHECK_NOTHROW(_mm256_load_ps(&(a.storage())[0])); // check if data is 32 byte aligned by default
@@ -141,8 +141,8 @@ TEST_CASE("Virtual Tensors") {
         Tensor<float> a = Tensor<float>({N, N}).allocate();
         CHECK_NOTHROW(_mm512_load_ps(&(a.storage())[0]));
       }
-    }
 #endif
+    }
 
     // Random number generation is tested in file ./test_random_distributions.cc
     SECTION("Tensor<float>({N, N}).randn()") {
