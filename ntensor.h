@@ -127,13 +127,10 @@ class Tensor {
 
   private:
     const View* mview;
-
     T* mstorage = nullptr;
-    bool bsub=false; // subtensor?
-    void* endptr = nullptr; //sub-tensor ending address
-
     float* grad = nullptr;
-
+    void* endptr = nullptr; //sub-tensor ending address
+    bool bsub=false; // subtensor?
     bool bgrad=false;
     bool beye=false; // special indexing 
     bool ballocated=false;
@@ -155,11 +152,8 @@ class Tensor {
       : mview(new View(shp)), disklen(size), bgrad(grad), mdevice(dev), binitialized(true), ballocated(true)
     {
       if(size != mview->elem) throw std::length_error(std::to_string(size)+" elements do not fit inside of given shape.");
-      // There doesn't seem to be a way to check memory block alignment
-      // of argument data, so this will run every time
-      #ifdef FORCE_ALIGN
-        mstorage = alloc<T>(size);
-        for(size_t i=0; i<size; i++) mstorage[i] = data[i]; 
+      #ifdef FORCE_ALIGNMENT
+        mstorage = alloc<T>(size); for(size_t i=0; i<size; i++) mstorage[i] = data[i]; 
       #else
         mstorage = &data[0];
       #endif
@@ -169,9 +163,8 @@ class Tensor {
       : mview(new View(&shape[0], slen)), disklen(size), bgrad(grad), mdevice(dev), binitialized(true), ballocated(true), bsub(sub) 
     {
       if(size != mview->elem) throw std::length_error(std::to_string(size)+" elements do not fit inside of given shape.");
-      #ifdef FORCE_ALIGN
-        mstorage = alloc<T>(size);
-        for(size_t i=0; i<size; i++) mstorage[i] = data[i]; 
+      #ifdef FORCE_ALIGNMENT
+        mstorage = alloc<T>(size); for(size_t i=0; i<size; i++) mstorage[i] = data[i]; 
       #else
         mstorage = &data[0];
       #endif
@@ -181,16 +174,13 @@ class Tensor {
     Tensor(T* data, void* endptr, uint64_t size, uint32_t* shape, size_t slen, bool grad=false, Device dev=CPU)
       : mstorage(data), endptr(endptr), bsub(true), mview(new View(&shape[0], slen)), 
         disklen(size), bgrad(grad), mdevice(dev), binitialized(true), ballocated(true) 
-    {
-      if(size != mview->elem) throw std::length_error(std::to_string(size)+" elements do not fit inside of given shape.");
-    }
+    { if(size != mview->elem) throw std::length_error(std::to_string(size)+" elements do not fit inside of given shape."); }
 
     // if shpmismatch stride correction is left to the user
     Tensor(std::initializer_list<T> data, std::initializer_list<uint32_t> shp, bool shpmismatch=false, bool grad=false, Device dev=CPU)
       : mview(new View(shp)), disklen(data.size()), bgrad(grad), mdevice(dev), binitialized(true)
     {
-      if(!shpmismatch && data.size() != mview->elem)
-        throw std::length_error("Elements do not fit the given shape. To mismatch shape, give shpmismatch=true.");
+      if(!shpmismatch && data.size() != mview->elem) throw std::length_error("Elements do not fit the given shape");
       else if (data.size() == mview->elem) ballocated=true; // otherwise virtual
       size_t i=0;
       mstorage = alloc<T>(data.size());
@@ -200,11 +190,7 @@ class Tensor {
     constexpr Tensor(Tensor<T>& t) 
       : binitialized(t.binitialized), ballocated(t.ballocated), bgrad(t.bgrad), beye(t.beye), bsub(t.bsub),
         mdevice(t.mdevice), disklen(t.disklen), mview(t.mview), mstorage(t.mstorage), grad(t.grad)
-    {
-      t.mview = nullptr;
-      t.mstorage = nullptr;
-      t.grad = nullptr;
-    }
+    { t.mview = nullptr; t.mstorage = nullptr; t.grad = nullptr; }
 
     ~Tensor() {
       if(mstorage && !bsub) free(mstorage);
@@ -213,7 +199,6 @@ class Tensor {
     }
 
     // Getters /*-------------------------------------------------------------*/
-
     const T* storage() { return (mstorage) ? &mstorage[0] : static_cast<T*>(nullptr); }
     const uint32_t ndim() { return mview->numdim; }
     const uint64_t numel() { return mview->elem; }
@@ -226,51 +211,65 @@ class Tensor {
     bool is_eye() { return beye; }
     bool is_sub() { return bsub; }
     bool has_grad() { return bgrad; }
-    T item() { if(disklen == 1 && mview->elem == 1) return mstorage[0]; }
+    T item() { return (disklen == 1 && mview->elem == 1) ? mstorage[0] : throw std::runtime_error("Invalid call to .item()"); }
 
 		// Constructor helpers /*-------------------------------------------------*/
-
-    // for virtual tensors and sub-tensors
     Tensor<T>& allocate() {
       if(binitialized) throw std::runtime_error("Attempted to allocate() initialized tensor.");
       T* nd = alloc<T>(mview->elem);
-      if(bsub) for(size_t i=0; i<disklen; i++) nd[i] = mstorage[i];
+      if(bsub) for(size_t i=0; i<disklen; i++) nd[i] = mstorage[i]; // if subtensor, move data
       disklen = mview->elem;
-      ballocated = true;
-      binitialized = true;
+      ballocated = binitialized = true;
       mstorage = &nd[0];
       return *this;
     }
 
-    // auto a = Tensor<>::fill({2048, 2048}, 69.f);
-    static Tensor<T> fill(std::initializer_list<uint32_t> shp, T& v, bool grad=false, Device device=CPU) {
-      Tensor<T> ret = Tensor<T>({v}, shp, true, grad, device);
-      ret.mview->strides[0] = 0;
-      return ret;
-    }
-
-/*
-    static Tensor<T> fill(T* shp, uint64_t len, T& v, bool grad=false, Device device=CPU) {
-      Tensor<T> ret = Tensor<T>({v}, shp, len, true, grad, device);
-      ret.mview->strides[0] = 0;
-      return ret;
-    }
-*/
-
     // auto a = Tensor<float>({1024, 1024}).fill(0.f);
-    // auto b = Tensor<>::like(a).fill(69.f);
     Tensor<T>& fill(T v) {
-      if(mstorage) throw std::runtime_error("Cannot fill initialized tensor."); 
+      if(mstorage) throw std::runtime_error("Cannot fill() initialized tensor."); 
       mstorage = alloc<T>(1);
       mstorage[0] = v;
       for(size_t i=0; i<this->mview->numdim; i++) this->mview->strides[i] = 0;
-      this->binitialized = true;
-      this->ballocated = false;
+      binitialized = true;
+      ballocated = false;
       disklen=1;
       return *this;
     }
 
-    // auto a = Tensor<float>::arange(1024*1024, 0).reshape({1024, 1024});
+    // auto a = Tensor<float>({1024, 1024}).randn();
+    Tensor<T>& randn(T up=(T)1, T down=(T)0, randn_dist dist=NORMAL, uint32_t seed=0, bool grad=false, Device mdevice=CPU) {
+      if(mstorage) throw std::runtime_error("Cannot randn() initialized tensor."); 
+      size_t count = (mview->elem % 2 == 0) ? mview->elem : mview->elem+1; // box muller requires %2
+      mstorage = alloc<T>(count);
+      switch(dist){
+        case NORMAL: f32_generate_box_muller_normal_distribution(&mstorage[0], this->mview->elem, up, down, seed); break;
+        case UNIFORM: f32_generate_uniform_distribution(&mstorage[0], this->mview->elem, up, down, seed); break;
+        case CHI_SQUARED: f32_generate_chi_squared_distribution(&mstorage[0], this->mview->elem, up, down, seed); break;
+      }
+      binitialized = ballocated = true;
+      disklen=mview->elem;
+      return *this;
+    }
+
+    // auto a = Tensor<int>({1024, 1024}).eye();
+    Tensor<T>& eye() {
+      if(mview->numdim < 2 || mview->elem < 4) throw std::runtime_error("Cannot create an identity tensor of less then 2 dimensions or elements.");
+      size_t nlx = mview->numdim;
+      while(--nlx>0 && mview->view[nlx]==mview->view[0]);
+      if(nlx != 0) throw std::runtime_error("Tensor dimensions must be equal to create eye().");
+      #ifdef FORCE_ALLOCATE
+        mstorage = calloc(mview->elem, sizeof(T)); // initialized allocated mem to 0
+        for(size_t i=0; i<view->view[0]; i++) mstorage[i*(mview->view[0]*(mview->numdim-1))+i]=1; 
+        ballocated=binitialized=true;
+      #else
+        T* nd = alloc<T>(1);
+        beye=binitialized=true;
+        ballocated=false;
+      #endif
+      return *this;
+    }
+
+    // auto a = Tensor<float>::arange(1024*1024).reshape({1024, 1024});
     static Tensor<T> arange(T stop, T start=(T)0, T step=(T)1, bool grad=false, Device mdevice=CPU) {
       if(std::is_floating_point<T>::value) {
 			  if(lt_f32((T)stop, (T)start) || lt_f32((T)step, (T)0) 
@@ -283,81 +282,22 @@ class Tensor {
       return Tensor<T>(nd, size, {size}, grad, mdevice);
     }
 
-    // auto a = Tensor<float>::randn({1024, 1024}, 3.14, -3.14, CHI_SQUARED, 177013);
-    static Tensor<T> randn(std::initializer_list<uint32_t> shp, T up=(T)1, T down=(T)0, randn_dist dist=NORMAL,
-                           uint32_t seed=0, bool grad=false, Device mdevice=CPU) 
-    {
-      uint64_t elem = count_elem(shp);
-      T* nd = static_cast<T*>( aligned_alloc(MEMORY_ALIGNMENT, elem*sizeof(T)) );
-      switch(dist){
-        case NORMAL: f32_generate_box_muller_normal_distribution(&nd[0], elem, up, down, seed); break;
-        case UNIFORM: f32_generate_uniform_distribution(&nd[0], elem, up, down, seed); break;
-        case CHI_SQUARED: f32_generate_chi_squared_distrubution(&nd[0], elem, up, down, seed); break;
-      }
-      return Tensor<T>(nd, elem, shp, grad, mdevice);
-    }
-
-    // auto b = Tensor<float>::like(a).randn();
-    Tensor<T>& randn(T up=(T)1, T down=(T)0, randn_dist dist=NORMAL, uint32_t seed=0, bool grad=false, Device mdevice=CPU) {
-      if(mstorage) throw std::runtime_error("Cannot randn() initialized tensor."); 
-      size_t count = (mview->elem % 2 == 0) ? mview->elem : mview->elem+1; // box muller requires %2
-      mstorage = alloc<T>(count);
-      switch(dist){
-        case NORMAL: f32_generate_box_muller_normal_distribution(&mstorage[0], this->mview->elem, up, down, seed); break;
-        case UNIFORM: f32_generate_uniform_distribution(&mstorage[0], this->mview->elem, up, down, seed); break;
-        case CHI_SQUARED: f32_generate_chi_squared_distribution(&mstorage[0], this->mview->elem, up, down, seed); break;
-      }
-      binitialized=true;
-      ballocated=true;
-      disklen=mview->elem;
-      return *this;
-    }
-
-    // by default not allocated into memory. value is decided when indexing
-    // TODO: does this work for dims>2?
-    static Tensor<T> eye(uint32_t size, uint32_t dims=2, bool resolved=false, Device mdevice=CPU) {
-      if(size < 2 || dims < 2) throw std::runtime_error("Cannot create an identity tensor of less then 2 dimensions or elements.");
-      #ifdef FORCE_ALLOCATE
-        T* nd = static_cast<T*>( aligned_alloc(MEMORY_ALIGNMENT, size*dims*sizeof(T)) );
-        for(size_t i=0; i<size; i++) nd[i*size+i]=size; 
-        uint32_t* shp = new uint32_t[dims];
-        for(size_t i=0; i<dims; i++) shp[i]=size;
-        Tensor<T> ret = Tensor<T>(nd, size*dims, shp, dims, false, mdevice);
-        ret.ballocated=true;
-        ret.binitialized=true;
-      #else
-        T* nd = alloc<T>(1);
-        uint32_t* shp = new uint32_t[dims];
-        for(size_t i=0; i<dims; i++) shp[i]=size;
-        Tensor<T> ret = Tensor<T>(nd, 1, shp, dims, false, mdevice);
-        ret.beye=true;
-        ret.ballocated=false;
-        ret.binitialized=true;
-        return ret;
-      #endif
-    }
-
-
     // Move semantics /*-------------------------------------------------*/
-
-    // new mview, no data ptr 
     static Tensor<T> like(Tensor<T>& from) {
       uint32_t* shp = new uint32_t[from.mview->numdim];
       for(size_t i=0; i<from.mview->numdim; i++) shp[i] = from.mview->view[i];
       return Tensor<T>(shp, from.mview->numdim, from.mdevice);
     }
 
-    // new mview, same data ptr
-    Tensor<T> copy() {
+    Tensor<T> copy() {  // shares data ownership 
       uint32_t* shp = new uint32_t[mview->numdim];
       for(size_t i=0; i<mview->numdim; i++) shp[i] = mview->view[i];
       return Tensor<T>(&mstorage[0], disklen, &shp[0], mview->numdim, bgrad, mdevice, true);
     }
-
-    // new mview, new data ptr 
-    Tensor<T> clone() {
+    
+    Tensor<T> clone() { // copies data
       uint32_t* shp = new uint32_t[mview->numdim];
-      T* nd = static_cast<T*>( aligned_alloc(MEMORY_ALIGNMENT, mview->elem*sizeof(T)) );
+      T* nd = alloc<T>(mview->elem);
       for(size_t i=0; i<mview->numdim; i++) shp[i] = mview->view[i];
       for(size_t i=0; i<disklen; i++) nd[i] = mstorage[i];
       return Tensor<T>(&nd[0], disklen, &shp[0], mview->numdim, bgrad, mdevice);
@@ -374,10 +314,10 @@ class Tensor {
       uint32_t idxs[idx_len] = { idx, args... }; // should not compile if type is wrong
       if(!ballocated) {
         if(beye) {
-          if(idx_len < mview->numdim) {} // TODO
+          if(idx_len < mview->numdim) {} // TODO, use calloc
           uint32_t nlx = idx_len;
           while(--nlx>0 && idxs[nlx]==idxs[0]);
-          return Tensor<>({ ((nlx==0) ? (float)1 : (float)0) }, {1}, false, false, mdevice);
+          return Tensor<>({ ((nlx==0) ? (T)1 : (T)0) }, {1}, false, false, mdevice);
         }
       }
       uint64_t start_idx=0;
