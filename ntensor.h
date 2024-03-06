@@ -261,7 +261,7 @@ class Tensor {
     }
 
     Tensor<T>& eye() {
-      if(mview->numdim < 2) throw std::runtime_error("Cannot create an identity tensor of less then 2 dimensions.");
+      if(mview->numdim < 2 || mview->view[0]==1) throw std::runtime_error("Cannot create an identity tensor of less then 2 dimensions.");
       size_t nlx = mview->numdim;
       while(--nlx>0 && mview->view[nlx]==mview->view[0]);
       if(nlx != 0) throw std::runtime_error("All tensor dimensions must be equal to create eye().");
@@ -288,7 +288,7 @@ class Tensor {
     // Move semantics /*---------------------------------------------------------------------------------------*/
     static Tensor<T> like(Tensor<T>& from) {
       uint32_t* shp = new uint32_t[from.mview->numdim];
-      std::memcpy(&shp[0], &(mview->view[0]), mview->numdim*sizeof(uint32_t));
+      std::memcpy(&shp[0], &(from.mview->view[0]), from.mview->numdim*sizeof(uint32_t));
       return Tensor<T>(shp, from.mview->numdim, from.mdevice);
     }
 
