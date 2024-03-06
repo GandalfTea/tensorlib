@@ -201,7 +201,7 @@ TEST_CASE("Generators", "stats") {
 		SECTION("Uniform Distribution") {
 			SECTION("0 - 1") {
         float* a = alloc<float>(500);
-				Tensor<>::f32_generate_uniform_distribution(&a[0], 500);
+				Tensor<>::f32_randn_uniform(&a[0], 500);
 				for(size_t i=0; i < 500; i++) {
 					CHECK(max_f32(a[i], -0.1f));
 					CHECK(max_f32(1.3f, a[i]));
@@ -210,7 +210,7 @@ TEST_CASE("Generators", "stats") {
 			}
 			SECTION("0 - 5") {
         float* a = alloc<float>(500);
-				Tensor<>::f32_generate_uniform_distribution(&a[0], 500, 5.f);
+				Tensor<>::f32_randn_uniform(&a[0], 500, 5.f);
 				for(size_t i=0; i < 500; i++) {
 					CHECK(max_f32(a[i], -0.1f));
 					CHECK(max_f32(5.1f, a[i]));
@@ -219,7 +219,7 @@ TEST_CASE("Generators", "stats") {
 			}
 			SECTION("-5 : -5") {
         float* a = alloc<float>(500);
-				Tensor<>::f32_generate_uniform_distribution(&a[0], 500, 5.f, -5.f);
+				Tensor<>::f32_randn_uniform(&a[0], 500, 5.f, -5.f);
 				for(size_t i=0; i < 500; i++) {
 					CHECK(max_f32(a[i], -5.1f));
 					CHECK(max_f32(5.1f, a[i]));
@@ -228,7 +228,7 @@ TEST_CASE("Generators", "stats") {
 			}
 			SECTION("epsilon .5f") {
         float* a = alloc<float>(500);
-				Tensor<>::f32_generate_uniform_distribution(&a[0], 500, 1.f, 0.f, 0, true, 0.5f);
+				Tensor<>::f32_randn_uniform(&a[0], 500, 1.f, 0.f, 0, 0.5f);
 				for(size_t i=0; i < 500; i++) {
 					CHECK(max_f32(a[i], 0.4f));
 					CHECK(max_f32(1.1f, a[i]));
@@ -240,7 +240,7 @@ TEST_CASE("Generators", "stats") {
 		SECTION("Box-Muller Transform") {
 			SECTION("0-1") {
         float* a = alloc<float>(5000);
-				Tensor<>::f32_generate_box_muller_normal_distribution(&a[0], 5000);
+				Tensor<>::f32_randn_box_muller_normal(&a[0], 5000);
 				CHECK_THAT(get_mean(a, 5000), WithinAbsMatcher(0.f, 0.1));
 				CHECK_THAT(get_std(a, 5000), WithinAbsMatcher(1.f, 0.1));
 				//CHECK(normal_kolmogorov_smirnov_test(a, 5000, get_mean(a, 5000), get_std(a, 5000))); 
@@ -249,7 +249,7 @@ TEST_CASE("Generators", "stats") {
 					double val, mean=0, max=0, min=1;
 					for(size_t i=0; i < 100; i++) {
             float* a = alloc<float>(5000);
-						Tensor<>::f32_generate_box_muller_normal_distribution(&a[0],5000);
+						Tensor<>::f32_randn_box_muller_normal(&a[0],5000);
 						res += dagostino_skewness_test(&a[0], 5000, &val);
 						mean += val/100;	
 						if(max_f32(val, max)) max=val;
@@ -264,7 +264,7 @@ TEST_CASE("Generators", "stats") {
 					double val, mean=0, max=0, min=1;
 					for(size_t i=0; i < 100; i++) {
             float* a = alloc<float>(5000);
-						Tensor<>::f32_generate_box_muller_normal_distribution(&a[0],5000);
+						Tensor<>::f32_randn_box_muller_normal(&a[0],5000);
 						res += dagostino_kurtosis_test(&a[0], 5000, &val);
 						mean += val/100;	
 						if(max_f32(val, max)) max=val;
@@ -279,7 +279,7 @@ TEST_CASE("Generators", "stats") {
 					double val1, val2, mean=0, max=0, min=1;
 					for(size_t i=0; i < 100; i++) {
             float* a = alloc<float>(5000);
-						Tensor<>::f32_generate_box_muller_normal_distribution(&a[0],5000);
+						Tensor<>::f32_randn_box_muller_normal(&a[0],5000);
 						res += dagostino_kurtosis_test(&a[0], 5000, &val1);
 						res += dagostino_skewness_test(&a[0], 5000, &val2);
 						mean += (val1+val2)/200;	
@@ -295,7 +295,7 @@ TEST_CASE("Generators", "stats") {
 					double val, mean=0, max=0, min=1;
 					for(size_t i=0; i < 100; i++) {
             float* a = alloc<float>(5000);
-						Tensor<>::f32_generate_box_muller_normal_distribution(&a[0], 5000);
+						Tensor<>::f32_randn_box_muller_normal(&a[0], 5000);
 						res += dagostino_omnibus(&a[0], 5000, &val);
 						mean += val/100;	
 						if(max_f32(val, max)) max=val;
