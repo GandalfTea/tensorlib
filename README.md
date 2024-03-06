@@ -1,7 +1,34 @@
 
 Lightweight header-only tensor library for C++17 and later.
 
+<!--
 &nbsp;
+
+### Neural networks
+```c++
+#include "tensor.h"
+
+using tensorlib::Tensor;
+using std::sqrt;
+
+class LinearNet {
+  Tensor<float> w1, b1, w2, b2;
+
+  LinearNet() {
+    w1 = Tensor<float>({784, 128}, true).randn(1/sqrt(784), -1/sqrt(784), KAIMING_UNIFORM);
+    w2 = Tensor<float>({128, 10}, true).randn(1/sqrt(128), -1/sqrt(128), KAIMING_UNIFORM);
+    b1 = Tensor<float>({128}).randn(sqrt(128), -sqrt(128), UNIFORM);
+    b2 = Tensor<float>({10}).randn(sqrt(10), -sqrt(10), UNIFORM);
+  }
+
+  operator()(Tensor<float> x) {
+    x.dot(w1).add(b1).relu().dot(w2).add(b2);
+  }
+}
+```
+-->
+&nbsp;
+
 
 ### Initialisation
 Create a virtual tensor and allocate the memory:
@@ -26,33 +53,6 @@ Tensor<float> i = Tensor<>::like(a).fill(0.f) // 0-full tensor identical to a
 ```
 All the memory allocated by the library is aligned according to the macro `MEMORY_ALIGNMENT` defaulted to 32 bytes for AVX-256, unless the size of the block is smaller then the alignment requirement.
 
-<!--
-
-&nbsp;
-
-### Neural networks
-```c++
-#include "tensor.h"
-
-using tensorlib::Tensor;
-using std::sqrt;
-
-class LinearNet {
-  Tensor<float> w1, b1, w2, b2;
-
-  LinearNet() {
-    w1 = Tensor<float>({784, 128}, true).randn();
-    b1 = Tensor<float>({128}).randn(sqrt(-1/128), sqrt(1/128), UNIFORM);
-    w2 = Tensor<float>({128, 10}, true).randn();
-    b2 = Tensor<float>({10}).randn(sqrt(-1/128), sqrt(1/128), UNIFORM);
-  }
-
-  operator(Tensor<float> x) {
-    x.dot(w1).add(b1).relu().dot(w2).add(b2);
-  }
-}
-```
--->
 
 &nbsp;
 
