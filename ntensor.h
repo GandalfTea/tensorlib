@@ -269,7 +269,6 @@ class Tensor {
       return *this;
     }
 
-    // auto a = Tensor<float>::arange(1024*1024).reshape({1024, 1024});
     static Tensor<T> arange(T stop, T start=(T)0, T step=(T)1, bool grad=false, Device mdevice=CPU) {
 			uint32_t size = (std::abs(stop)+std::abs(start))/std::abs(step);
       T* nd = alloc<T>(size);
@@ -359,6 +358,14 @@ class Tensor {
       return *this;
     }
 
+    Tensor<T>& reshape(std::initializer_lit<uint32_t> nshp) {
+      size_t i=0, ac=1;
+      uint32_t&* nv = new uint32_t[nshp.size()];
+      if(mview->strides[mview->numdim] != 1) {
+        // prev permute
+      }
+    }
+
     // NOTE: using consecutive number sum to not allow repeated dimensions
     Tensor<T>& permute(std::initializer_list<uint32_t> idxs) {
       if(idxs.size() != mview->numdim) throw std::invalid_argument("Invalid number of dimensions in permute()");
@@ -444,6 +451,16 @@ class Tensor {
     Tensor<T>& flip(td::initializer_list<uint32_t> argview) {}
     Tensor<T>& pad(td::initializer_list<uint32_t> argview) {}
 
+    // Data movement OPs /*-----------------------------------------------------------------------------------*/
+
+    // auto a = Tensor<float>::arange(512*512).reshape({512, 512}).transpose();
+    // NOTE: we already have permute?
+    Tensor<T>& transpose() {
+      if(!ballocated || !binitialized) throw std::runtime_error("Cannot transpose uninitialised Tensor.");
+      if(mview->numdim != 2) throw std::runtime_error("Transposition can only be done on 2D Tensors. Use .permute().");
+      if(std::is_floating_point(mstorage[0])::value) _t_f((const T*)&mstorage[0], &nd[0, mview->strides[0], mview->strides[0]]);
+      else _t_i((const T*)&mstorage[0], &nd[0, mview->strides[0], mview->strides[0]]);
+    }
 
     // Static data generation /*------------------------------------------------------------------------------*/
 		static void f32_generate_uniform_distribution(float* to, uint32_t count, float up=1.f, float down=0.f, double seed=0, 
@@ -497,6 +514,189 @@ class Tensor {
 };
   
 } // namespace
+
+
+// Vector Kernels 
+namespace intrin {
+
+// 2D transpose float
+#if defined(__AVX512_F__)
+  // TODO
+#else if defined(__AVX__)
+static inline void _t_f(const float* from, float* to, int lda, int ldb) {
+  __m256 t0, t1, t2, t3, t4,t5, t6, t7,
+         r0, r1, r2, r3, r4, r5, r6, r7;
+  r0 = _mm256_insertf128_ps(_mm256_castps128_ps256(_mm_load_ps(&from[0*lda+0])), _mm_load_ps(&from[4*lda+0]), 1);
+  r1 = _mm256_insertf128_ps(_mm256_castps128_ps256(_mm_load_ps(&from[1*lda+0])), _mm_load_ps(&from[5*lda+0]), 1);
+  r2 = _mm256_insertf128_ps(_mm256_castps128_ps256(_mm_load_ps(&from[2*lda+0])), _mm_load_ps(&from[6*lda+0]), 1);
+  r3 = _mm256_insertf128_ps(_mm256_castps128_ps256(_mm_load_ps(&from[3*lda+0])), _mm_load_ps(&from[7*lda+0]), 1);
+  r4 = _mm256_insertf128_ps(_mm256_castps128_ps256(_mm_load_ps(&from[0*lda+4])), _mm_load_ps(&from[4*lda+4]), 1);
+  r5 = _mm256_insertf128_ps(_mm256_castps128_ps256(_mm_load_ps(&from[1*lda+4])), _mm_load_ps(&from[5*lda+4]), 1);
+  r6 = _mm256_insertf128_ps(_mm256_castps128_ps256(_mm_load_ps(&from[2*lda+4])), _mm_load_ps(&from[6*lda+4]), 1);
+  r7 = _mm256_insertf128_ps(_mm256_castps128_ps256(_mm_load_ps(&from[3*lda+4])), _mm_load_ps(&from[7*lda+4]), 1);
+
+  t0 = _mm256_unpacklo_ps(r0, r1);
+  t1 = _mm256_unpackhi_ps(r0, r1);
+  t2 = _mm256_unpacklo_ps(r2, r3);
+  t3 = _mm256_unpackhi_ps(r2, r3);
+  t4 = _mm256_unpacklo_ps(r4, r5);
+  t5 = _mm256_unpackhi_ps(r4, r5);
+  t6 = _mm256_unpacklo_ps(r6, r7);
+  t7 = _mm256_unpackhi_ps(r6, r7);
+
+  r0 = _mm256_shuffle_ps(t0, t2, 0x44);
+  r1 = _mm256_shuffle_ps(t0, t2, 0xee);
+  r2 = _mm256_shuffle_ps(t1, t3, 0x44);
+  r3 = _mm256_shuffle_ps(t1, t3, 0xee);
+  r4 = _mm256_shuffle_ps(t4, t6, 0x44);
+  r5 = _mm256_shuffle_ps(t4, t6, 0xee);
+  r6 = _mm256_shuffle_ps(t5, t7, 0x44);
+  r7 = _mm256_shuffle_ps(t5, t7, 0xee);
+
+  _mm256_store_ps( &to[0*ldb], r0);
+  _mm256_store_ps( &to[1*ldb], r1);
+  _mm256_store_ps( &to[2*ldb], r2);
+  _mm256_store_ps( &to[3*ldb], r3);
+  _mm256_store_ps( &to[4*ldb], r4);
+  _mm256_store_ps( &to[5*ldb], r5);
+  _mm256_store_ps( &to[6*ldb], r6);
+  _mm256_store_ps( &to[7*ldb], r7);
+}
+
+#else if defined (__SSE__)
+static inline void _t_f(const float* from, float* to, int lda, int ldb) {
+  // TODO: SSE transpose
+}
+
+#else
+static inline void _t_f(const float* from, float* to, int lda, int ldb) {
+  // TODO: RAW transpose
+}
+#endif
+
+
+//transpose int
+#if defined(__AVX2__)
+#else if defined(__SSE__)
+#else
+#endif
+
+// sgemm
+inline void pack_a(int k, const float* a, int lda, float* to) {
+  for(int j=0; j<k; j++) {
+    const float *a_ij_ptr = &a[(j*lda)+0]; 
+    *to = *a_ij_ptr;
+    *(to+1) = *(a_ij_ptr+1);
+    *(to+2) = *(a_ij_ptr+2);
+    *(to+3) = *(a_ij_ptr+3);
+    *(to+4) = *(a_ij_ptr+4);
+    *(to+5) = *(a_ij_ptr+5);
+    *(to+6) = *(a_ij_ptr+6);
+    *(to+7) = *(a_ij_ptr+7);
+    to += 8;
+  }
+}
+
+inline void pack_b(int k, const float* b, int ldb, float* to) {
+  int i;
+  const float *b_i0_ptr = &b[0], *b_i1_ptr = &b[(1*ldb)],
+              *b_i2_ptr = &b[(2*ldb)], *b_i3_ptr = &b[(3*ldb)],
+              *b_i4_ptr = &b[(4*ldb)], *b_i5_ptr = &b[(5*ldb)],
+              *b_i6_ptr = &b[(6*ldb)], *b_i7_ptr = &b[(7*ldb)];
+  for(i=0; i<k; i++) {
+    *to     = *b_i0_ptr;
+    *(to+1) = *(b_i1_ptr);
+    *(to+2) = *(b_i2_ptr);
+    *(to+3) = *(b_i3_ptr);
+    *(to+4) = *(b_i4_ptr);
+    *(to+5) = *(b_i5_ptr);
+    *(to+6) = *(b_i6_ptr);
+    *(to+7) = *(b_i7_ptr);
+    to += 8;
+    b_i0_ptr++; b_i1_ptr++; b_i2_ptr++;
+    b_i3_ptr++; b_i4_ptr++; b_i5_ptr++;
+    b_i6_ptr++; b_i7_ptr++;
+  }
+}
+
+// sgemm float
+#ifdef(__AVX__)
+typedef union {
+  __m256 v;
+  float f[8];
+} m256_t;
+
+inline void _8x8_m256_gemm(int k, const float* a, const float* b, float* c, int ldc) {
+  m256 c0007, c1017, c2027, c3037, c4047, c5057, c6067, c7077, a_vreg, b_p0_vreg;
+  c0007 = _mm256_setzero_ps(); c1017 = _mm256_setzero_ps();
+  c2027 = _mm256_setzero_ps(); c3037 = _mm256_setzero_ps();
+  c4047 = _mm256_setzero_ps(); c5057 = _mm256_setzero_ps();
+  c6067 = _mm256_setzero_ps(); c7077 = _mm256_setzero_ps();
+
+  for(int iiiii=0; iiiii<k; iiiii++) {
+    __builtin_prefetch(a+8);
+    __builtin_prefetch(b+8);
+    a_vreg = _mm256_load_ps( (float*)a );
+    b_p0_vreg = _mm256_load_ps( (float*)b );
+    a += 8; b += 8;
+    c0007 += a_vreg * b_p0_vreg.f[0]; c1017 += a_vreg * b_p0_vreg.f[1];
+    c2027 += a_vreg * b_p0_vreg.f[2]; c3037 += a_vreg * b_p0_vreg.f[3];
+    c4047 += a_vreg * b_p0_vreg.f[4]; c5057 += a_vreg * b_p0_vreg.f[5];
+    c6067 += a_vreg * b_p0_vreg.f[6]; c7077 += a_vreg * b_p0_vreg.f[7];
+  }
+  m256_t w0, w1, w2, w3, w4, w5, w6, w7;
+  w0 = _mm256_load_ps((float*)&c[0*ldc]); w1 = _mm256_load_ps((float*)&c[1*ldc]);
+  w2 = _mm256_load_ps((float*)&c[2*ldc]); w3 = _mm256_load_ps((float*)&c[3*ldc]);
+  w4 = _mm256_load_ps((float*)&c[4*ldc]); w5 = _mm256_load_ps((float*)&c[5*ldc]);
+  w6 = _mm256_load_ps((float*)&c[6*ldc]); w7 = _mm256_load_ps((float*)&c[7*ldc]);
+
+  c0007 = _mm256_add_ps(c0007, w0); c1017 = _mm256_add_ps(c1017, w1);
+  c2027 = _mm256_add_ps(c2027, w2); c3037 = _mm256_add_ps(c3037, w3);
+  c4047 = _mm256_add_ps(c4047, w4); c5057 = _mm256_add_ps(c5057, w5);
+  c6067 = _mm256_add_ps(c6067, w6); c7077 = _mm256_add_ps(c7077, w7);
+
+  _mm256_store_ps( &c[0*ldc], c0007); _mm256_store_ps( &c[1*ldc], c1017);
+  _mm256_store_ps( &c[2*ldc], c2027); _mm256_store_ps( &c[3*ldc], c3037);
+  _mm256_store_ps( &c[4*ldc], c4047); _mm256_store_ps( &c[5*ldc], c5057);
+  _mm256_store_ps( &c[6*ldc], c6067); _mm256_store_ps( &c[7*ldc], c7077);
+}
+
+template<int mb=128, int kb=128, int th=1>
+void _f_gemm(float* a, float* b, float* c, int m, int n, int k) {
+  #pragma omp parallel for shared(a, b, c, m, n, k) default(none) collapse(1) num_threads(th)
+  for(int i=0; i<k; i+=kb) {
+    int ib = std::min(k-i, kb);
+    float* pb = new alignas(32) float[ib*n];
+    for(int ii=0; ii<m; ii+=mb) {
+      int iib = std::min(m-ii, mb);
+      float* pa = new alignas(32) float[ib*iib];
+      float* wa = &a[i*k+ii];
+      float* wb = &b[i];
+      for(int iii=0; iii<n; iii+=8) {
+        if(ii==0) pack_b(ib, &wb[iii*n], n, &pb[iii*ib]);
+        for(int iiii=0; iiii<iib; iii+=8) {
+          if(iii==0) pack_a(ib, &wa[iiii], k ,&pa[iiii*ib]);
+          _8x8_m256_gemm(iib, &pa[iiii*ib], &pb[iii*ib], &c[ii+iii*n+iiii], n);
+        }
+      }
+    }
+  }
+}
+#else if defined(__SSE__)
+#else
+#endif
+
+//sgemm int
+#ifdef(__AVX2__)
+#else if defined(__SSE__)
+#else
+#end
+
+}
+
+
+
+// std::cout repr
 
 template<typename T>
 inline std::ostream& operator<<(std::ostream& outs, tensorlib::Tensor<T>& tensor) {
