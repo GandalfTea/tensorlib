@@ -361,18 +361,9 @@ class Tensor {
       return *this;
     }
 
-    Tensor<T>& reshape(std::initializer_lit<uint32_t> nshp) {
-      size_t i=0, ac=1;
-      uint32_t&* nv = new uint32_t[nshp.size()];
-      if(mview->strides[mview->numdim] != 1) {
-        // prev permute
-      }
-    }
-
-    // NOTE: using consecutive number sum to not allow repeated dimensions
     Tensor<T>& permute(std::initializer_list<uint32_t> idxs) {
       if(idxs.size() != mview->numdim) throw std::invalid_argument("Invalid number of dimensions in permute()");
-      uint32_t consum = ((idxs.size()-1)*idxs.size())/2;
+      uint32_t consum = ((idxs.size()-1)*idxs.size())/2; // using consecutive number sum to not allow repeated dimensions
       uint32_t* nv = new uint32_t[idxs.size()];
       uint32_t* ns = new uint32_t[idxs.size()];
       uint32_t consum_c=0, i=0;
@@ -484,6 +475,7 @@ class Tensor {
 			}
 		}
 
+    // https://arxiv.org/pdf/1502.01852.pdf
     static void f32_randn_kaiming_uniform(float* to, uint32_t count, float a=0.01) {
       double bound = std::sqrt(3.f)*std::sqrt(2.f/(1+std::pow(a, 2))) / std::sqrt(count);
       return f32_randn_uniform(to, count, bound, -bound);
@@ -650,7 +642,27 @@ void _f_gemm(float* a, float* b, float* c, int m, int n, int k) {
   }
 }
 #else if defined(__SSE__)
+  // TODO
+
 #else
+template<int block, int tile, int th=1>
+void _f_gemm(float* a, float* b, float* c, int m, int n, int k) {
+  #pragma omp parallel for shared(c, a, b, m, n, k) default(none) collapse(4) num_threads(th)
+  for(size_t row_tile=0; row_tile < m; row_tile += block) {
+    for(size_t column_tile=0; column_tile < n; column_tile += block) {
+      for(size_t inner_tile=0; inner_tile < k; inner_tile += tile) {
+        for(size_t row=row_tile; row < row_tile+block; row++) {
+          int i_tile_end = std::min<float>(k, inner_tile+tile);
+          for(size_t in=inner_tile; in<i_tile_end; in++) {
+            for(size_t col=column_tile; col<column_tile+block; col++) {
+              c[row*n+col] += a[row*k+in] * b[in*n+col];
+            }
+          }
+        }
+      }
+    }
+  }
+}
 #endif
 
 //sgemm int
