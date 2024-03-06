@@ -15,6 +15,7 @@
 #include <random>
 #include <stdlib.h>
 #include <cstdlib>
+#include <cstring>
 #include <stdexcept>
 #include <initializer_list>
 #include <type_traits> // arange std::is_floating_point
