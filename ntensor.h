@@ -30,6 +30,13 @@ using std::size_t;
 // test for general memory alignment 
 #define is_aligned(ptr, bytes) (((uintptr_t)(const void*)(ptr)) % bytes == 0)
 
+// decls
+namespace intrin {
+  static inline void _t_f(const float* from, float* to, int lda, int ldb);
+  static inline void _t_i(const int* from, int* to, int lda, int ldb);
+  void _f_gemm(float* a, float* b, float* c, int m, int n, int k);
+}
+
 #if DEBUG > 2
 #include <iomanip>
 #include <iostream>
@@ -149,7 +156,7 @@ class Tensor {
     Tensor(T* data, uint64_t size, std::initializer_list<uint32_t> shp, bool grad=false, Device dev=CPU)
       : mview(new View(shp)), disklen(size), bgrad(grad), mdevice(dev), binitialized(true), ballocated(true)
     {
-      if(size != mview->elem) throw std::length_error(std::to_string(size)+" elements do not fit inside of given shape.");
+      if(size != mview->elem) throw std::length_error(std::to_string(size)+" elements do not fit inside the given shape.");
       #ifdef FORCE_ALIGNMENT
         mstorage = alloc<T>(size); for(size_t i=0; i<size; i++) mstorage[i] = data[i]; 
       #else
@@ -441,9 +448,9 @@ class Tensor {
     }
 
     // TODO
-    Tensor<T>& shrink(td::initializer_list<uint32_t> argview) {}
-    Tensor<T>& flip(td::initializer_list<uint32_t> argview) {}
-    Tensor<T>& pad(td::initializer_list<uint32_t> argview) {}
+    Tensor<T>& shrink(std::initializer_list<uint32_t> argview) {}
+    Tensor<T>& flip(std::initializer_list<uint32_t> argview) {}
+    Tensor<T>& pad(std::initializer_list<uint32_t> argview) {}
 
     // Data movement OPs /*-----------------------------------------------------------------------------------*/
 
@@ -452,7 +459,8 @@ class Tensor {
     Tensor<T>& transpose() {
       if(!ballocated || !binitialized) throw std::runtime_error("Cannot transpose uninitialised Tensor.");
       if(mview->numdim != 2) throw std::runtime_error("Transposition can only be done on 2D Tensors. Use .permute().");
-      if(std::is_floating_point(mstorage[0])::value) intrin::_t_f((const T*)&mstorage[0], &nd[0, mview->strides[0], mview->strides[0]]);
+      T* nd = alloc<T>(mview->elem);
+      if(std::is_floating_point<T>::value) intrin::_t_f((const T*)&mstorage[0], &nd[0, mview->strides[0], mview->strides[0]]);
       else intrin::_t_i((const T*)&mstorage[0], &nd[0, mview->strides[0], mview->strides[0]]);
     }
 
@@ -461,7 +469,7 @@ class Tensor {
  			static std::mt19937 rng(std::random_device{}());
 			if(!eql_f32(seed, 0.f)) rng.seed(seed);
 			static std::uniform_real_distribution<float> dist(down, up);
-			if(!eql_f32(e, 0.f)) for(size_t i=0; i<count; i++) do to[i] = dist(rng) while (to[i] <= e);
+			if(!eql_f32(e, 0.f)) for(size_t i=0; i<count; i++) do to[i] = dist(rng); while (to[i] <= e);
 			else for(size_t i=0; i<count; i++) to[i] = dist(rng);
 		}
 
@@ -487,7 +495,7 @@ class Tensor {
 			constexpr float two_pi = 2.0 * M_PI;
       float* u1 = alloc<float>(count/2);
       float* u2 = alloc<float>(count/2);
-			Tensor<>::f32_randn_uniform(&u1[0], count/2, up, down, seed, true, epsilon);
+			Tensor<>::f32_randn_uniform(&u1[0], count/2, up, down, seed, epsilon);
 			Tensor<>::f32_randn_uniform(&u2[0], count/2, up, down, seed);
 			for(size_t i=0, j=0; i<count/2; i++, j+=2) {
 				auto mag = std::sqrt(-2.0 * std::log(u1[i]));
@@ -507,14 +515,13 @@ class Tensor {
 };
   
 
-
 // Vector Kernels 
 namespace intrin {
 
 // transpose float kernel
 #if defined(__AVX512_F__)
   // TODO
-#else if defined(__AVX__)
+#elif defined(__AVX__)
 static inline void _t_f(const float* from, float* to, int lda, int ldb) {
   __m256 t0, t1, t2, t3, t4,t5, t6, t7,
          r0, r1, r2, r3, r4, r5, r6, r7;
@@ -539,7 +546,7 @@ static inline void _t_f(const float* from, float* to, int lda, int ldb) {
   _mm256_store_ps( &to[4*ldb], r4); _mm256_store_ps( &to[5*ldb], r5);
   _mm256_store_ps( &to[6*ldb], r6); _mm256_store_ps( &to[7*ldb], r7);
 }
-#else if defined (__SSE__)
+#elif defined (__SSE__)
 static inline void _t_f(const float* from, float* to, int lda, int ldb) {
   // TODO: SSE transpose
 }
@@ -553,7 +560,7 @@ static inline void _t_f(const float* from, float* to, int lda, int ldb) {
 
 //transpose int
 #if defined(__AVX2__)
-#else if defined(__SSE__)
+#elif defined(__SSE__)
 #else
 #endif
 
@@ -588,36 +595,41 @@ inline void pack_b(int k, const float* b, int ldb, float* to) {
 }
 
 // sgemm float
-#ifdef(__AVX__)
+#ifdef __AVX__
+typedef union {
+  __m256 v;
+  float f[8];
+} m256_t;
+
 inline void _8x8_m256_gemm(int k, const float* a, const float* b, float* c, int ldc) {
-  __m256 c0007, c1017, c2027, c3037, c4047, c5057, c6067, c7077, a_vreg, b_p0_vreg;
-  c0007 = _mm256_setzero_ps(); c1017 = _mm256_setzero_ps();
-  c2027 = _mm256_setzero_ps(); c3037 = _mm256_setzero_ps();
-  c4047 = _mm256_setzero_ps(); c5057 = _mm256_setzero_ps();
-  c6067 = _mm256_setzero_ps(); c7077 = _mm256_setzero_ps();
+  m256_t c0007, c1017, c2027, c3037, c4047, c5057, c6067, c7077, a_vreg, b_p0_vreg;
+  c0007.v = _mm256_setzero_ps(); c1017.v = _mm256_setzero_ps();
+  c2027.v = _mm256_setzero_ps(); c3037.v = _mm256_setzero_ps();
+  c4047.v = _mm256_setzero_ps(); c5057.v = _mm256_setzero_ps();
+  c6067.v = _mm256_setzero_ps(); c7077.v = _mm256_setzero_ps();
   for(int iiiii=0; iiiii<k; iiiii++) {
     __builtin_prefetch(a+8); __builtin_prefetch(b+8);
-    a_vreg = _mm256_load_ps( (float*)a );
-    b_p0_vreg = _mm256_load_ps( (float*)b );
+    a_vreg.v = _mm256_load_ps( (float*)a );
+    b_p0_vreg.v = _mm256_load_ps( (float*)b );
     a += 8; b += 8;
-    c0007 += a_vreg * b_p0_vreg.f[0]; c1017 += a_vreg * b_p0_vreg.f[1];
-    c2027 += a_vreg * b_p0_vreg.f[2]; c3037 += a_vreg * b_p0_vreg.f[3];
-    c4047 += a_vreg * b_p0_vreg.f[4]; c5057 += a_vreg * b_p0_vreg.f[5];
-    c6067 += a_vreg * b_p0_vreg.f[6]; c7077 += a_vreg * b_p0_vreg.f[7];
+    c0007.v += a_vreg.v * b_p0_vreg.f[0]; c1017.v += a_vreg.v * b_p0_vreg.f[1];
+    c2027.v += a_vreg.v * b_p0_vreg.f[2]; c3037.v += a_vreg.v * b_p0_vreg.f[3];
+    c4047.v += a_vreg.v * b_p0_vreg.f[4]; c5057.v += a_vreg.v * b_p0_vreg.f[5];
+    c6067.v += a_vreg.v * b_p0_vreg.f[6]; c7077.v += a_vreg.v * b_p0_vreg.f[7];
   }
-  m256_t w0, w1, w2, w3, w4, w5, w6, w7;
+  __m256 w0, w1, w2, w3, w4, w5, w6, w7;
   w0 = _mm256_load_ps((float*)&c[0*ldc]); w1 = _mm256_load_ps((float*)&c[1*ldc]);
   w2 = _mm256_load_ps((float*)&c[2*ldc]); w3 = _mm256_load_ps((float*)&c[3*ldc]);
   w4 = _mm256_load_ps((float*)&c[4*ldc]); w5 = _mm256_load_ps((float*)&c[5*ldc]);
   w6 = _mm256_load_ps((float*)&c[6*ldc]); w7 = _mm256_load_ps((float*)&c[7*ldc]);
-  c0007 = _mm256_add_ps(c0007, w0); c1017 = _mm256_add_ps(c1017, w1);
-  c2027 = _mm256_add_ps(c2027, w2); c3037 = _mm256_add_ps(c3037, w3);
-  c4047 = _mm256_add_ps(c4047, w4); c5057 = _mm256_add_ps(c5057, w5);
-  c6067 = _mm256_add_ps(c6067, w6); c7077 = _mm256_add_ps(c7077, w7);
-  _mm256_store_ps( &c[0*ldc], c0007); _mm256_store_ps( &c[1*ldc], c1017);
-  _mm256_store_ps( &c[2*ldc], c2027); _mm256_store_ps( &c[3*ldc], c3037);
-  _mm256_store_ps( &c[4*ldc], c4047); _mm256_store_ps( &c[5*ldc], c5057);
-  _mm256_store_ps( &c[6*ldc], c6067); _mm256_store_ps( &c[7*ldc], c7077);
+  c0007.v = _mm256_add_ps(c0007.v, w0); c1017.v = _mm256_add_ps(c1017.v, w1);
+  c2027.v = _mm256_add_ps(c2027.v, w2); c3037.v = _mm256_add_ps(c3037.v, w3);
+  c4047.v = _mm256_add_ps(c4047.v, w4); c5057.v = _mm256_add_ps(c5057.v, w5);
+  c6067.v = _mm256_add_ps(c6067.v, w6); c7077.v = _mm256_add_ps(c7077.v, w7);
+  _mm256_store_ps( &c[0*ldc], c0007.v); _mm256_store_ps( &c[1*ldc], c1017.v);
+  _mm256_store_ps( &c[2*ldc], c2027.v); _mm256_store_ps( &c[3*ldc], c3037.v);
+  _mm256_store_ps( &c[4*ldc], c4047.v); _mm256_store_ps( &c[5*ldc], c5057.v);
+  _mm256_store_ps( &c[6*ldc], c6067.v); _mm256_store_ps( &c[7*ldc], c7077.v);
 }
 
 template<int mb=128, int kb=128, int th=1>
@@ -641,7 +653,7 @@ void _f_gemm(float* a, float* b, float* c, int m, int n, int k) {
     }
   }
 }
-#else if defined(__SSE__)
+#elif defined(__SSE__)
   // TODO
 
 #else
@@ -666,10 +678,11 @@ void _f_gemm(float* a, float* b, float* c, int m, int n, int k) {
 #endif
 
 //sgemm int
-#ifdef(__AVX2__)
-#else if defined(__SSE__)
+#ifdef __AVX2__
+#elif defined(__SSE__)
 #else
-#end
+  // TODO:
+#endif
 
 } // intrin namespace
 } // tensorlib namespace
