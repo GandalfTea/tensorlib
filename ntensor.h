@@ -30,7 +30,7 @@ using std::size_t;
 // test for general memory alignment 
 #define is_aligned(ptr, bytes) (((uintptr_t)(const void*)(ptr)) % bytes == 0)
 
-// decls
+// kernels
 namespace intrin {
   static inline void _t_f(const float* from, float* to, int lda, int ldb);
   static inline void _t_i(const int* from, int* to, int lda, int ldb);
@@ -158,7 +158,7 @@ class Tensor {
     {
       if(size != mview->elem) throw std::length_error(std::to_string(size)+" elements do not fit inside the given shape.");
       #ifdef FORCE_ALIGNMENT
-        mstorage = alloc<T>(size); for(size_t i=0; i<size; i++) mstorage[i] = data[i]; 
+        mstorage = alloc<T>(size); std::memcpy(&data[0], &mstorage[0], size*sizeof(T));
       #else
         mstorage = &data[0];
       #endif
@@ -169,7 +169,7 @@ class Tensor {
     {
       if(size != mview->elem) throw std::length_error(std::to_string(size)+" elements do not fit inside of given shape.");
       #ifdef FORCE_ALIGNMENT
-        mstorage = alloc<T>(size); for(size_t i=0; i<size; i++) mstorage[i] = data[i]; 
+        mstorage = alloc<T>(size); std::memcpy(&mstorage[0], &data[0], size*sizeof(T));
       #else
         mstorage = &data[0];
       #endif
@@ -266,7 +266,6 @@ class Tensor {
       while(--nlx>0 && mview->view[nlx]==mview->view[0]);
       if(nlx != 0) throw std::runtime_error("All tensor dimensions must be equal to create eye().");
       #ifdef FORCE_ALLOCATE
-        //mstorage = calloc(mview->elem, sizeof(T)); //alized allocated mem to 0
         mstorage = alloc<T>(mview->elem);
         memset(&mstorage[0], 0, mview->elem*sizeof(T));
         for(size_t i=0; i<view->view[0]; i++) mstorage[i*(mview->view[0]*(mview->numdim-1))+i]=1; 
@@ -289,21 +288,21 @@ class Tensor {
     // Move semantics /*---------------------------------------------------------------------------------------*/
     static Tensor<T> like(Tensor<T>& from) {
       uint32_t* shp = new uint32_t[from.mview->numdim];
-      for(size_t i=0; i<from.mview->numdim; i++) shp[i] = from.mview->view[i];
+      std::memcpy(&shp[0], &(mview->view[0]), mview->numdim*sizeof(uint32_t));
       return Tensor<T>(shp, from.mview->numdim, from.mdevice);
     }
 
     Tensor<T> copy() {  // shares data ownership 
       uint32_t* shp = new uint32_t[mview->numdim];
-      for(size_t i=0; i<mview->numdim; i++) shp[i] = mview->view[i];
+      std::memcpy(&shp[0], &(mview->view[0]), mview->numdim*sizeof(uint32_t));
       return Tensor<T>(&mstorage[0], disklen, &shp[0], mview->numdim, bgrad, mdevice, true);
     }
     
     Tensor<T> clone() { // copies data
       uint32_t* shp = new uint32_t[mview->numdim];
       T* nd = alloc<T>(mview->elem);
-      for(size_t i=0; i<mview->numdim; i++) shp[i] = mview->view[i];
-      for(size_t i=0; i<disklen; i++) nd[i] = mstorage[i];
+      std::memcpy(&shp[0], &(mview->view[0]), mview->numdim*sizeof(uint32_t));
+      std::memcpy(&nd[0], &mstorage[0], disklen*sizeof(T));
       return Tensor<T>(&nd[0], disklen, &shp[0], mview->numdim, bgrad, mdevice);
     }
 
@@ -454,8 +453,8 @@ class Tensor {
 
     // Data movement OPs /*-----------------------------------------------------------------------------------*/
 
-    // auto a = Tensor<float>::arange(512*512).reshape({512, 512}).transpose();
     // NOTE: we already have permute?
+    // auto a = Tensor<float>::arange(512*512).reshape({512, 512}).transpose();
     Tensor<T>& transpose() {
       if(!ballocated || !binitialized) throw std::runtime_error("Cannot transpose uninitialised Tensor.");
       if(mview->numdim != 2) throw std::runtime_error("Transposition can only be done on 2D Tensors. Use .permute().");
@@ -681,7 +680,6 @@ void _f_gemm(float* a, float* b, float* c, int m, int n, int k) {
 #ifdef __AVX2__
 #elif defined(__SSE__)
 #else
-  // TODO:
 #endif
 
 } // intrin namespace
