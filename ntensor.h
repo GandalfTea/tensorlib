@@ -66,6 +66,8 @@ typedef enum {
   UNIFORM,
   NORMAL,
   CHI_SQUARED,
+  KAIMING_UNIFORM,
+  kAIMING_NORMAL,
 } randn_dist;
 
 struct View {
@@ -241,9 +243,10 @@ class Tensor {
       size_t count = (mview->elem % 2 == 0) ? mview->elem : mview->elem+1; // box muller requires %2
       mstorage = alloc<T>(count);
       switch(dist){
-        case NORMAL: f32_generate_box_muller_normal_distribution(&mstorage[0], this->mview->elem, up, down, seed); break;
-        case UNIFORM: f32_generate_uniform_distribution(&mstorage[0], this->mview->elem, up, down, seed); break;
-        case CHI_SQUARED: f32_generate_chi_squared_distribution(&mstorage[0], this->mview->elem, up, down, seed); break;
+        case NORMAL: f32_randn_box_muller_normal(&mstorage[0], this->mview->elem, up, down, seed); break;
+        case KAIMING_UNIFORM: f32_randn_kaiming_uniform(&mstorage[0], this->mview->elem);
+        case UNIFORM: f32_randn_uniform(&mstorage[0], this->mview->elem, up, down, seed); break;
+        case CHI_SQUARED: f32_randn_chi_squared(&mstorage[0], this->mview->elem, up, down, seed); break;
       }
       binitialized=ballocated=mview->bcontiguous=true;
       disklen=mview->elem;
@@ -458,28 +461,22 @@ class Tensor {
     Tensor<T>& transpose() {
       if(!ballocated || !binitialized) throw std::runtime_error("Cannot transpose uninitialised Tensor.");
       if(mview->numdim != 2) throw std::runtime_error("Transposition can only be done on 2D Tensors. Use .permute().");
-      if(std::is_floating_point(mstorage[0])::value) _t_f((const T*)&mstorage[0], &nd[0, mview->strides[0], mview->strides[0]]);
-      else _t_i((const T*)&mstorage[0], &nd[0, mview->strides[0], mview->strides[0]]);
+      if(std::is_floating_point(mstorage[0])::value) intrin::_t_f((const T*)&mstorage[0], &nd[0, mview->strides[0], mview->strides[0]]);
+      else intrin::_t_i((const T*)&mstorage[0], &nd[0, mview->strides[0], mview->strides[0]]);
     }
 
     // Static data generation /*------------------------------------------------------------------------------*/
-		static void f32_generate_uniform_distribution(float* to, uint32_t count, float up=1.f, float down=0.f, double seed=0, 
-										                                bool bepsilon=false, float epsilon=0) 
-		{
+		static void f32_randn_uniform(float* to, uint32_t count, float up=1.f, float down=0.f, double seed=0.f, float e=0.f) {
  			static std::mt19937 rng(std::random_device{}());
-			if(seed!=0) rng.seed(seed);
-			static std::uniform_real_distribution<> dist(down, up);
-			if(bepsilon) {
-				for(size_t i=0; i<count; i++) {
-					do { to[i] = dist(rng);
-					} while (to[i] <= epsilon);
-				}
-			} else for(size_t i=0; i<count; i++) to[i] = dist(rng);
+			if(!eql_f32(seed, 0.f)) rng.seed(seed);
+			static std::uniform_real_distribution<float> dist(down, up);
+			if(!eql_f32(e, 0.f)) for(size_t i=0; i<count; i++) do to[i] = dist(rng) while (to[i] <= e);
+			else for(size_t i=0; i<count; i++) to[i] = dist(rng);
 		}
 
-		static void f32_generate_chi_squared_distribution(float* to, uint32_t count, float up=1.f, float down=0.f, double seed=0) {
+		static void f32_randn_chi_squared(float* to, uint32_t count, float up=1.f, float down=0.f, double seed=0) {
  			static std::mt19937 rng(std::random_device{}());
-			if(seed!=0) rng.seed(seed);
+			if(!eql_f32(seed, 0.f)) rng.seed(seed);
 			static std::chi_squared_distribution<float> dist(2);
 			for(size_t i=0; i<count; i++) { 
 				float n = dist(rng);
@@ -487,15 +484,19 @@ class Tensor {
 			}
 		}
 
-		// If count is odd, it adds an extra element
-		static void f32_generate_box_muller_normal_distribution(float* to, uint32_t count, float up=1.f, float down=0.f, double seed=0) {
-			if(count % 2 != 0) count++; 
+    static void f32_randn_kaiming_uniform(float* to, uint32_t count, float a=0.01) {
+      double bound = std::sqrt(3.f)*std::sqrt(2.f/(1+std::pow(a, 2))) / std::sqrt(count);
+      return f32_randn_uniform(to, count, bound, -bound);
+    }
+
+		static void f32_randn_box_muller_normal(float* to, uint32_t count, float up=1.f, float down=0.f, double seed=0.f) {
+			if(count % 2 != 0) count++;  // NOTE: If count is odd, it adds an extra element
 			constexpr float epsilon = std::numeric_limits<float>::epsilon();
 			constexpr float two_pi = 2.0 * M_PI;
       float* u1 = alloc<float>(count/2);
       float* u2 = alloc<float>(count/2);
-			Tensor<>::f32_generate_uniform_distribution(&u1[0], count/2, up, down, seed, true, epsilon);
-			Tensor<>::f32_generate_uniform_distribution(&u2[0], count/2, up, down, seed);
+			Tensor<>::f32_randn_uniform(&u1[0], count/2, up, down, seed, true, epsilon);
+			Tensor<>::f32_randn_uniform(&u2[0], count/2, up, down, seed);
 			for(size_t i=0, j=0; i<count/2; i++, j+=2) {
 				auto mag = std::sqrt(-2.0 * std::log(u1[i]));
 				to[j]   = mag * std::sin(two_pi * u2[i]);
@@ -513,13 +514,12 @@ class Tensor {
     }
 };
   
-} // namespace
 
 
 // Vector Kernels 
 namespace intrin {
 
-// 2D transpose float
+// transpose float kernel
 #if defined(__AVX512_F__)
   // TODO
 #else if defined(__AVX__)
@@ -534,35 +534,19 @@ static inline void _t_f(const float* from, float* to, int lda, int ldb) {
   r5 = _mm256_insertf128_ps(_mm256_castps128_ps256(_mm_load_ps(&from[1*lda+4])), _mm_load_ps(&from[5*lda+4]), 1);
   r6 = _mm256_insertf128_ps(_mm256_castps128_ps256(_mm_load_ps(&from[2*lda+4])), _mm_load_ps(&from[6*lda+4]), 1);
   r7 = _mm256_insertf128_ps(_mm256_castps128_ps256(_mm_load_ps(&from[3*lda+4])), _mm_load_ps(&from[7*lda+4]), 1);
-
-  t0 = _mm256_unpacklo_ps(r0, r1);
-  t1 = _mm256_unpackhi_ps(r0, r1);
-  t2 = _mm256_unpacklo_ps(r2, r3);
-  t3 = _mm256_unpackhi_ps(r2, r3);
-  t4 = _mm256_unpacklo_ps(r4, r5);
-  t5 = _mm256_unpackhi_ps(r4, r5);
-  t6 = _mm256_unpacklo_ps(r6, r7);
-  t7 = _mm256_unpackhi_ps(r6, r7);
-
-  r0 = _mm256_shuffle_ps(t0, t2, 0x44);
-  r1 = _mm256_shuffle_ps(t0, t2, 0xee);
-  r2 = _mm256_shuffle_ps(t1, t3, 0x44);
-  r3 = _mm256_shuffle_ps(t1, t3, 0xee);
-  r4 = _mm256_shuffle_ps(t4, t6, 0x44);
-  r5 = _mm256_shuffle_ps(t4, t6, 0xee);
-  r6 = _mm256_shuffle_ps(t5, t7, 0x44);
-  r7 = _mm256_shuffle_ps(t5, t7, 0xee);
-
-  _mm256_store_ps( &to[0*ldb], r0);
-  _mm256_store_ps( &to[1*ldb], r1);
-  _mm256_store_ps( &to[2*ldb], r2);
-  _mm256_store_ps( &to[3*ldb], r3);
-  _mm256_store_ps( &to[4*ldb], r4);
-  _mm256_store_ps( &to[5*ldb], r5);
-  _mm256_store_ps( &to[6*ldb], r6);
-  _mm256_store_ps( &to[7*ldb], r7);
+  t0 = _mm256_unpacklo_ps(r0, r1); t1 = _mm256_unpackhi_ps(r0, r1);
+  t2 = _mm256_unpacklo_ps(r2, r3); t3 = _mm256_unpackhi_ps(r2, r3);
+  t4 = _mm256_unpacklo_ps(r4, r5); t5 = _mm256_unpackhi_ps(r4, r5);
+  t6 = _mm256_unpacklo_ps(r6, r7); t7 = _mm256_unpackhi_ps(r6, r7);
+  r0 = _mm256_shuffle_ps(t0, t2, 0x44); r1 = _mm256_shuffle_ps(t0, t2, 0xee);
+  r2 = _mm256_shuffle_ps(t1, t3, 0x44); r3 = _mm256_shuffle_ps(t1, t3, 0xee);
+  r4 = _mm256_shuffle_ps(t4, t6, 0x44); r5 = _mm256_shuffle_ps(t4, t6, 0xee);
+  r6 = _mm256_shuffle_ps(t5, t7, 0x44); r7 = _mm256_shuffle_ps(t5, t7, 0xee);
+  _mm256_store_ps( &to[0*ldb], r0); _mm256_store_ps( &to[1*ldb], r1);
+  _mm256_store_ps( &to[2*ldb], r2); _mm256_store_ps( &to[3*ldb], r3);
+  _mm256_store_ps( &to[4*ldb], r4); _mm256_store_ps( &to[5*ldb], r5);
+  _mm256_store_ps( &to[6*ldb], r6); _mm256_store_ps( &to[7*ldb], r7);
 }
-
 #else if defined (__SSE__)
 static inline void _t_f(const float* from, float* to, int lda, int ldb) {
   // TODO: SSE transpose
@@ -586,12 +570,9 @@ inline void pack_a(int k, const float* a, int lda, float* to) {
   for(int j=0; j<k; j++) {
     const float *a_ij_ptr = &a[(j*lda)+0]; 
     *to = *a_ij_ptr;
-    *(to+1) = *(a_ij_ptr+1);
-    *(to+2) = *(a_ij_ptr+2);
-    *(to+3) = *(a_ij_ptr+3);
-    *(to+4) = *(a_ij_ptr+4);
-    *(to+5) = *(a_ij_ptr+5);
-    *(to+6) = *(a_ij_ptr+6);
+    *(to+1) = *(a_ij_ptr+1); *(to+2) = *(a_ij_ptr+2);
+    *(to+3) = *(a_ij_ptr+3); *(to+4) = *(a_ij_ptr+4);
+    *(to+5) = *(a_ij_ptr+5); *(to+6) = *(a_ij_ptr+6);
     *(to+7) = *(a_ij_ptr+7);
     to += 8;
   }
@@ -604,38 +585,26 @@ inline void pack_b(int k, const float* b, int ldb, float* to) {
               *b_i4_ptr = &b[(4*ldb)], *b_i5_ptr = &b[(5*ldb)],
               *b_i6_ptr = &b[(6*ldb)], *b_i7_ptr = &b[(7*ldb)];
   for(i=0; i<k; i++) {
-    *to     = *b_i0_ptr;
-    *(to+1) = *(b_i1_ptr);
-    *(to+2) = *(b_i2_ptr);
-    *(to+3) = *(b_i3_ptr);
-    *(to+4) = *(b_i4_ptr);
-    *(to+5) = *(b_i5_ptr);
-    *(to+6) = *(b_i6_ptr);
+    *to = *b_i0_ptr;
+    *(to+1) = *(b_i1_ptr); *(to+2) = *(b_i2_ptr);
+    *(to+3) = *(b_i3_ptr); *(to+4) = *(b_i4_ptr);
+    *(to+5) = *(b_i5_ptr); *(to+6) = *(b_i6_ptr);
     *(to+7) = *(b_i7_ptr);
     to += 8;
-    b_i0_ptr++; b_i1_ptr++; b_i2_ptr++;
-    b_i3_ptr++; b_i4_ptr++; b_i5_ptr++;
-    b_i6_ptr++; b_i7_ptr++;
+    b_i0_ptr++; b_i1_ptr++; b_i2_ptr++; b_i3_ptr++; b_i4_ptr++; b_i5_ptr++; b_i6_ptr++; b_i7_ptr++;
   }
 }
 
 // sgemm float
 #ifdef(__AVX__)
-typedef union {
-  __m256 v;
-  float f[8];
-} m256_t;
-
 inline void _8x8_m256_gemm(int k, const float* a, const float* b, float* c, int ldc) {
-  m256 c0007, c1017, c2027, c3037, c4047, c5057, c6067, c7077, a_vreg, b_p0_vreg;
+  __m256 c0007, c1017, c2027, c3037, c4047, c5057, c6067, c7077, a_vreg, b_p0_vreg;
   c0007 = _mm256_setzero_ps(); c1017 = _mm256_setzero_ps();
   c2027 = _mm256_setzero_ps(); c3037 = _mm256_setzero_ps();
   c4047 = _mm256_setzero_ps(); c5057 = _mm256_setzero_ps();
   c6067 = _mm256_setzero_ps(); c7077 = _mm256_setzero_ps();
-
   for(int iiiii=0; iiiii<k; iiiii++) {
-    __builtin_prefetch(a+8);
-    __builtin_prefetch(b+8);
+    __builtin_prefetch(a+8); __builtin_prefetch(b+8);
     a_vreg = _mm256_load_ps( (float*)a );
     b_p0_vreg = _mm256_load_ps( (float*)b );
     a += 8; b += 8;
@@ -649,12 +618,10 @@ inline void _8x8_m256_gemm(int k, const float* a, const float* b, float* c, int 
   w2 = _mm256_load_ps((float*)&c[2*ldc]); w3 = _mm256_load_ps((float*)&c[3*ldc]);
   w4 = _mm256_load_ps((float*)&c[4*ldc]); w5 = _mm256_load_ps((float*)&c[5*ldc]);
   w6 = _mm256_load_ps((float*)&c[6*ldc]); w7 = _mm256_load_ps((float*)&c[7*ldc]);
-
   c0007 = _mm256_add_ps(c0007, w0); c1017 = _mm256_add_ps(c1017, w1);
   c2027 = _mm256_add_ps(c2027, w2); c3037 = _mm256_add_ps(c3037, w3);
   c4047 = _mm256_add_ps(c4047, w4); c5057 = _mm256_add_ps(c5057, w5);
   c6067 = _mm256_add_ps(c6067, w6); c7077 = _mm256_add_ps(c7077, w7);
-
   _mm256_store_ps( &c[0*ldc], c0007); _mm256_store_ps( &c[1*ldc], c1017);
   _mm256_store_ps( &c[2*ldc], c2027); _mm256_store_ps( &c[3*ldc], c3037);
   _mm256_store_ps( &c[4*ldc], c4047); _mm256_store_ps( &c[5*ldc], c5057);
@@ -692,8 +659,8 @@ void _f_gemm(float* a, float* b, float* c, int m, int n, int k) {
 #else
 #end
 
-}
-
+} // intrin namespace
+} // tensorlib namespace
 
 
 // std::cout repr
