@@ -721,7 +721,7 @@ inline void _add_f(float* a, float* b, float* c, size_t len) {
     a+=32; b+=32;
   }
   size_t r=len%32;
-  for(size_t i=0 i<r; i++) c[len-r+i]=a[len-r+i]+b[len-r+i];
+  for(size_t i=0; i<r; i++) c[len-r+i]=a[len-r+i]+b[len-r+i];
 }
 inline void _sub_f(float* a, float* b, float* c, size_t len) {
   __m256 b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4;
@@ -740,7 +740,7 @@ inline void _sub_f(float* a, float* b, float* c, size_t len) {
     a+=32; b+=32;
   }
   size_t r=len%32;
-  for(size_t i=0 i<r; i++) c[len-r+i]=a[len-r+i]-b[len-r+i];
+  for(size_t i=0; i<r; i++) c[len-r+i]=a[len-r+i]-b[len-r+i];
 }
 inline void _div_f(float* a, float* b, float* c, size_t len) {
   __m256 b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4;
@@ -759,7 +759,7 @@ inline void _div_f(float* a, float* b, float* c, size_t len) {
     a+=32; b+=32;
   }
   size_t r=len%32;
-  for(size_t i=0 i<r; i++) c[len-r+i]=a[len-r+i]/b[len-r+i];
+  for(size_t i=0; i<r; i++) c[len-r+i]=a[len-r+i]/b[len-r+i];
 }
 inline void _sqrt_f(float* a, float* c, size_t len) {
   __m256 b1, b2, b3, b4, c1, c2, c3, c4;
@@ -775,7 +775,7 @@ inline void _sqrt_f(float* a, float* c, size_t len) {
     _mm256_store_ps(&wa[16], c3); _mm256_store_ps(&wa[24], c4);
   }
   size_t r=len%32;
-  for(size_t i=0 i<r; i++) c[len-r+i]=std::sqrt(a[len-r+i]);
+  for(size_t i=0; i<r; i++) c[len-r+i]=std::sqrt(a[len-r+i]);
 }
 #elif defined (__SSE__) // TODO
 #else
