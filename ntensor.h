@@ -464,6 +464,26 @@ class Tensor {
       else intrin::_t_i((const T*)&mstorage[0], &nd[0, mview->strides[0], mview->strides[0]]);
     }
 
+    // Unary OPs /*--=----------------------------------------------------------------------------------------*/
+
+    Tensor<T>& exp2() {}
+    Tensor<T>& log2() {}
+    Tensor<T>& sin() {}
+    Tensor<T>& sqrt() {}
+    Tensor<T>& neg() {}
+
+    // Binary OPs /*------------------------------------------------------------------------------------------*/
+
+    Tensor<T> dot() {}
+    Tensor<T> add() {}
+    Tensor<T> sub() {}
+    Tensor<T> div() {}
+    Tensor<T> max() {}
+    Tensor<T> mod() {}
+    Tensor<T> cmplt() {}
+    Tensor<T> cmpeq() {}
+    Tensor<T> txor() {}
+
     // Static data generation /*------------------------------------------------------------------------------*/
 		static void f32_randn_uniform(float* to, uint32_t count, float up=1.f, float down=0.f, double seed=0.f, float e=0.f) {
  			static std::mt19937 rng(std::random_device{}());
@@ -519,8 +539,7 @@ class Tensor {
 namespace intrin {
 
 // transpose float kernel
-#if defined(__AVX512_F__)
-  // TODO
+#if defined(__AVX512_F__) // TODO
 #elif defined(__AVX__)
 static inline void _t_f(const float* from, float* to, int lda, int ldb) {
   __m256 t0, t1, t2, t3, t4,t5, t6, t7,
@@ -681,6 +700,89 @@ void _f_gemm(float* a, float* b, float* c, int m, int n, int k) {
 #ifdef __AVX2__
 #elif defined(__SSE__)
 #else
+#endif
+
+// Unary and Binary OPs kernels
+#ifdef __AVX__
+inline void _add_f(float* a, float* b, float* c, size_t len) {
+  __m256 b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4;
+  #pragma omp parallel for private(b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4) \
+   shared(a, b, c, len) default(none) collapse(1) num_threads(omp_get_max_threads())
+  for(size_t i=0; i<len; i+=32) { // 32 floats at a time
+    float* wc = &c[i];
+    b1 = _mm256_load_ps(&a[0]);  b2 = _mm256_load_ps(&a[8]);
+    b3 = _mm256_load_ps(&a[16]); b4 = _mm256_load_ps(&a[24]);
+    b5 = _mm256_load_ps(&b[0]);  b6 = _mm256_load_ps(&b[8]);
+    b7 = _mm256_load_ps(&b[16]); b8 = _mm256_load_ps(&b[24]);
+    c1 = _mm256_add_ps(b1, b4); c2 = _mm256_add_ps(b2, b5);
+    c3 = _mm256_add_ps(b3, b6); c4 = _mm256_add_ps(b4, b8);
+    _mm256_store_ps(&wc[0],  c1); _mm256_store_ps(&wc[8],  c2);
+    _mm256_store_ps(&wc[16], c3); _mm256_store_ps(&wc[24], c4);
+    a+=32; b+=32;
+  }
+  size_t r=len%32;
+  for(size_t i=0 i<r; i++) c[len-r+i]=a[len-r+i]+b[len-r+i];
+}
+inline void _sub_f(float* a, float* b, float* c, size_t len) {
+  __m256 b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4;
+  #pragma omp parallel for private(b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4) \
+   shared(a, b, c, len) default(none) collapse(1) num_threads(omp_get_max_threads())
+  for(size_t i=0; i<len; i+=32) { // 32 floats at a time
+    float* wc = &c[i];
+    b1 = _mm256_load_ps(&a[0]);  b2 = _mm256_load_ps(&a[8]);
+    b3 = _mm256_load_ps(&a[16]); b4 = _mm256_load_ps(&a[24]);
+    b5 = _mm256_load_ps(&b[0]);  b6 = _mm256_load_ps(&b[8]);
+    b7 = _mm256_load_ps(&b[16]); b8 = _mm256_load_ps(&b[24]);
+    c1 = _mm256_sub_ps(b1, b4); c2 = _mm256_sub_ps(b2, b5);
+    c3 = _mm256_sub_ps(b3, b6); c4 = _mm256_sub_ps(b4, b8);
+    _mm256_store_ps(&wc[0],  c1); _mm256_store_ps(&wc[8],  c2);
+    _mm256_store_ps(&wc[16], c3); _mm256_store_ps(&wc[24], c4);
+    a+=32; b+=32;
+  }
+  size_t r=len%32;
+  for(size_t i=0 i<r; i++) c[len-r+i]=a[len-r+i]-b[len-r+i];
+}
+inline void _div_f(float* a, float* b, float* c, size_t len) {
+  __m256 b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4;
+  #pragma omp parallel for private(b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4) \
+   shared(a, b, c, len) default(none) collapse(1) num_threads(omp_get_max_threads())
+  for(size_t i=0; i<len; i+=32) { // 32 floats at a time
+    float* wc = &c[i];
+    b1 = _mm256_load_ps(&a[0]);  b2 = _mm256_load_ps(&a[8]);
+    b3 = _mm256_load_ps(&a[16]); b4 = _mm256_load_ps(&a[24]);
+    b5 = _mm256_load_ps(&b[0]);  b6 = _mm256_load_ps(&b[8]);
+    b7 = _mm256_load_ps(&b[16]); b8 = _mm256_load_ps(&b[24]);
+    c1 = _mm256_div_ps(b1, b4); c2 = _mm256_div_ps(b2, b5);
+    c3 = _mm256_div_ps(b3, b6); c4 = _mm256_div_ps(b4, b8);
+    _mm256_store_ps(&wc[0],  c1); _mm256_store_ps(&wc[8],  c2);
+    _mm256_store_ps(&wc[16], c3); _mm256_store_ps(&wc[24], c4);
+    a+=32; b+=32;
+  }
+  size_t r=len%32;
+  for(size_t i=0 i<r; i++) c[len-r+i]=a[len-r+i]/b[len-r+i];
+}
+inline void _sqrt_f(float* a, float* c, size_t len) {
+  __m256 b1, b2, b3, b4, c1, c2, c3, c4;
+  #pragma omp parallel for private(b1, b2, b3, b4, c1, c2, c3, c4) \
+   shared(a, c, len) default(none) collapse(1) num_threads(omp_get_max_threads())
+  for(size_t i=0; i<len; i+=32) { // 32 floats at a time
+    float* wa = &a[i];
+    b1 = _mm256_load_ps(&wa[0]);  b2 = _mm256_load_ps(&wa[8]);
+    b3 = _mm256_load_ps(&wa[16]); b4 = _mm256_load_ps(&wa[24]);
+    c1 = _mm256_sqrt_ps(b1); c2 = _mm256_sqrt_ps(b2);
+    c3 = _mm256_sqrt_ps(b3); c4 = _mm256_sqrt_ps(b4);
+    _mm256_store_ps(&wa[0],  c1); _mm256_store_ps(&wa[8],  c2);
+    _mm256_store_ps(&wa[16], c3); _mm256_store_ps(&wa[24], c4);
+  }
+  size_t r=len%32;
+  for(size_t i=0 i<r; i++) c[len-r+i]=std::sqrt(a[len-r+i]);
+}
+#elif defined (__SSE__) // TODO
+#else
+inline void _add_f(float* a, float* b, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]+b[i]; }
+inline void _sub_f(float* a, float* b, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]-b[i]; }
+inline void _div_f(float* a, float* b, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]/b[i]; }
+inline void _sqrt_f(float* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::sqrt(a[i]); }
 #endif
 
 } // intrin namespace
