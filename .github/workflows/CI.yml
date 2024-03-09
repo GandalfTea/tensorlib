@@ -32,6 +32,19 @@ jobs:
     - name: Run
       run: ./a.out
 
+  test_tensor_ops_avx:
+    name: Tensor OPs AVX-256
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+    - name: Compile Test
+      run: g++ test/test_tensor_ops.cc -I ./ -march=native
+    - name: Run
+      run: ./a.out
+
   test_tensor_api:
     name: Tensor API 
     runs-on: ubuntu-latest
