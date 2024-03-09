@@ -19,16 +19,16 @@ jobs:
     - name: Run
       run: ./a.out
 
-  test_tensor_constructor_helpers:
-    name: Tensor Constructor Helpers 
+  test_tensor_ops:
+    name: Tensor OPs
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
 
-    steps: 
+    steps:
     - name: Checkout Code
       uses: actions/checkout@v3
     - name: Compile Test
-      run: g++ test/test_tensor_constructor_helpers.cc -I ./ 
+      uses: g++ test/test_tensor_ops.cc -I ../
     - name: Run
       run: ./a.out
 
@@ -45,8 +45,8 @@ jobs:
     - name: Run
       run: ./a.out
 
-  test_tensor_distributions:
-    name: Statistical randn() tests 
+  test_tensor_randn_dist:
+    name: Statistical distributions tests 
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
