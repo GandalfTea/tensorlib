@@ -537,14 +537,14 @@ inline void _8x8_m256_gemm(int k, const float* a, const float* b, float* c, int 
 
   m256_t w0, w1, w2, w3, w4, w5, w6, w7;
 
-  w0.v = _mm256_load_ps((float*)&wc[0*ldc]);
-  w1.v = _mm256_load_ps((float*)&wc[1*ldc]);
-  w2.v = _mm256_load_ps((float*)&wc[2*ldc]);
-  w3.v = _mm256_load_ps((float*)&wc[3*ldc]);
-  w4.v = _mm256_load_ps((float*)&wc[4*ldc]);
-  w5.v = _mm256_load_ps((float*)&wc[5*ldc]);
-  w6.v = _mm256_load_ps((float*)&wc[6*ldc]);
-  w7.v = _mm256_load_ps((float*)&wc[7*ldc]);
+  w0.v = _mm256_load_ps((float*)&c[0*ldc]);
+  w1.v = _mm256_load_ps((float*)&c[1*ldc]);
+  w2.v = _mm256_load_ps((float*)&c[2*ldc]);
+  w3.v = _mm256_load_ps((float*)&c[3*ldc]);
+  w4.v = _mm256_load_ps((float*)&c[4*ldc]);
+  w5.v = _mm256_load_ps((float*)&c[5*ldc]);
+  w6.v = _mm256_load_ps((float*)&c[6*ldc]);
+  w7.v = _mm256_load_ps((float*)&c[7*ldc]);
 
   c0007.v = _mm256_add_ps(c0007.v, w0.v);
   c1017.v = _mm256_add_ps(c1017.v, w1.v);
@@ -555,14 +555,14 @@ inline void _8x8_m256_gemm(int k, const float* a, const float* b, float* c, int 
   c6067.v = _mm256_add_ps(c6067.v, w6.v);
   c7077.v = _mm256_add_ps(c7077.v, w7.v);
 
-  _mm256_store_ps( &wc[0*ldc], c0007.v);
-  _mm256_store_ps( &wc[1*ldc], c1017.v);
-  _mm256_store_ps( &wc[2*ldc], c2027.v);
-  _mm256_store_ps( &wc[3*ldc], c3037.v);
-  _mm256_store_ps( &wc[4*ldc], c4047.v);
-  _mm256_store_ps( &wc[5*ldc], c5057.v);
-  _mm256_store_ps( &wc[6*ldc], c6067.v);
-  _mm256_store_ps( &wc[7*ldc], c7077.v);
+  _mm256_store_ps( &c[0*ldc], c0007.v);
+  _mm256_store_ps( &c[1*ldc], c1017.v);
+  _mm256_store_ps( &c[2*ldc], c2027.v);
+  _mm256_store_ps( &c[3*ldc], c3037.v);
+  _mm256_store_ps( &c[4*ldc], c4047.v);
+  _mm256_store_ps( &c[5*ldc], c5057.v);
+  _mm256_store_ps( &c[6*ldc], c6067.v);
+  _mm256_store_ps( &c[7*ldc], c7077.v);
 }
 
 
@@ -604,20 +604,20 @@ inline void pack_b(int k, const float* b, int ldb, float* to) {
 }
 
 template<int mb=128, int kb=128, int th=1>
-void _m256_gemm(const float* a, const float* b, float* c, int m, int n, int k) {
+void _m256_gemm(float* a, float* b, float* c, int m, int n, int k) {
   #pragma omp parallel for shared(a, b, c, m, n, k) default(none) collapse(1) num_threads(th)
-  for(int i=0; i<k; i+=kc) {
-    ib = std::min(k-p, kc);
+  for(int i=0; i<k; i+=kb) {
+    int ib = std::min(k-i, kb);
     float* pb = new alignas(32) float[ib*n];
-    for(int ii=0; ii<m; ii+=mc) {
-      iib = std::min(m-i, mc);
+    for(int ii=0; ii<m; ii+=mb) {
+      int iib = std::min(m-ii, mb);
       float * pa = new alignas(32) float[ib*iib];
       float* wa = &a[i*k+ii];
       float* wb = &b[i];
       for(int iii=0; iii<n; iii+=8) {
         if(ii==0) pack_b(ib, &wb[iii*n], n, &pb[iii*ib]);
         for(int iiii=0; iiii<iib; iii+=8) {
-          if(iii==0) pack_a(ib, &wa[iiii], k &pa[iiii*ib]);
+          if(iii==0) pack_a(ib, &wa[iiii], k ,&pa[iiii*ib]);
           _8x8_m256_gemm(iib, &pa[iiii*ib], &pb[iii*ib], &c[ii+iii*n+iiii], n);
         }
       }

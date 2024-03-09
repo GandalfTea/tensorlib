@@ -3,17 +3,16 @@
 #include "tensor.h"
 #include "catch.hpp"
 
-using namespace tensor;
+using namespace tensorlib;
 
 TEST_CASE("test_indexing_from_pytorch") {
-	std::unique_ptr<float[]> data = std::make_unique<float[]>(4096);
+  float* data = alloc<float>(4096);
 	for(size_t i=0; i < 4096; i++) { data[i]=i; }
 	Tensor<float> a(data, 4096, {2, 2, 2, 512});
 
 
 
-	std::shared_ptr<float[]> ndata000 = std::make_unique<float[]>(512);
-	ndata000 = a(0, 0, 0).data();
+	auto ndata000 = a(0, 0, 0).storage();
 	CHECK(ndata000[0] == 0);
 	CHECK(ndata000[1] == 1);
 	CHECK(ndata000[2] == 2);
@@ -527,8 +526,7 @@ TEST_CASE("test_indexing_from_pytorch") {
 	CHECK(ndata000[510] == 510);
 	CHECK(ndata000[511] == 511);
 
-	std::shared_ptr<float[]> ndata001 = std::make_unique<float[]>(512);
-	ndata001 = a(0, 0, 1).data();
+	auto ndata001 = a(0, 0, 1).storage();
 	CHECK(ndata001[0] == 512);
 	CHECK(ndata001[1] == 513);
 	CHECK(ndata001[2] == 514);
@@ -1042,8 +1040,7 @@ TEST_CASE("test_indexing_from_pytorch") {
 	CHECK(ndata001[510] == 1022);
 	CHECK(ndata001[511] == 1023);
 
-	std::shared_ptr<float[]> ndata00 = std::make_unique<float[]>(1024);
-	ndata00 = a(0, 0).data();
+	auto ndata00 = a(0, 0).storage();
 	CHECK(ndata00[0] == 0);
 	CHECK(ndata00[1] == 1);
 	CHECK(ndata00[2] == 2);
@@ -2069,8 +2066,7 @@ TEST_CASE("test_indexing_from_pytorch") {
 	CHECK(ndata00[1022] == 1022);
 	CHECK(ndata00[1023] == 1023);
 
-	std::shared_ptr<float[]> ndata010 = std::make_unique<float[]>(512);
-	ndata010 = a(0, 1, 0).data();
+	auto ndata010 = a(0, 1, 0).storage();
 	CHECK(ndata010[0] == 1024);
 	CHECK(ndata010[1] == 1025);
 	CHECK(ndata010[2] == 1026);
@@ -2584,8 +2580,7 @@ TEST_CASE("test_indexing_from_pytorch") {
 	CHECK(ndata010[510] == 1534);
 	CHECK(ndata010[511] == 1535);
 
-	std::shared_ptr<float[]> ndata011 = std::make_unique<float[]>(512);
-	ndata011 = a(0, 1, 1).data();
+	auto ndata011 = a(0, 1, 1).storage();
 	CHECK(ndata011[0] == 1536);
 	CHECK(ndata011[1] == 1537);
 	CHECK(ndata011[2] == 1538);
@@ -3099,8 +3094,7 @@ TEST_CASE("test_indexing_from_pytorch") {
 	CHECK(ndata011[510] == 2046);
 	CHECK(ndata011[511] == 2047);
 
-	std::shared_ptr<float[]> ndata01 = std::make_unique<float[]>(1024);
-	ndata01 = a(0, 1).data();
+	auto ndata01 = a(0, 1).storage();
 	CHECK(ndata01[0] == 1024);
 	CHECK(ndata01[1] == 1025);
 	CHECK(ndata01[2] == 1026);
@@ -4126,8 +4120,7 @@ TEST_CASE("test_indexing_from_pytorch") {
 	CHECK(ndata01[1022] == 2046);
 	CHECK(ndata01[1023] == 2047);
 
-	std::shared_ptr<float[]> ndata0 = std::make_unique<float[]>(2048);
-	ndata0 = a(0).data();
+	auto ndata0 = a(0).storage();
 	CHECK(ndata0[0] == 0);
 	CHECK(ndata0[1] == 1);
 	CHECK(ndata0[2] == 2);
@@ -6177,8 +6170,7 @@ TEST_CASE("test_indexing_from_pytorch") {
 	CHECK(ndata0[2046] == 2046);
 	CHECK(ndata0[2047] == 2047);
 
-	std::shared_ptr<float[]> ndata100 = std::make_unique<float[]>(512);
-	ndata100 = a(1, 0, 0).data();
+	auto ndata100 = a(1, 0, 0).storage();
 	CHECK(ndata100[0] == 2048);
 	CHECK(ndata100[1] == 2049);
 	CHECK(ndata100[2] == 2050);
@@ -6692,8 +6684,7 @@ TEST_CASE("test_indexing_from_pytorch") {
 	CHECK(ndata100[510] == 2558);
 	CHECK(ndata100[511] == 2559);
 
-	std::shared_ptr<float[]> ndata101 = std::make_unique<float[]>(512);
-	ndata101 = a(1, 0, 1).data();
+	auto ndata101 = a(1, 0, 1).storage();
 	CHECK(ndata101[0] == 2560);
 	CHECK(ndata101[1] == 2561);
 	CHECK(ndata101[2] == 2562);
@@ -7207,8 +7198,7 @@ TEST_CASE("test_indexing_from_pytorch") {
 	CHECK(ndata101[510] == 3070);
 	CHECK(ndata101[511] == 3071);
 
-	std::shared_ptr<float[]> ndata10 = std::make_unique<float[]>(1024);
-	ndata10 = a(1, 0).data();
+	auto ndata10 = a(1, 0).storage();
 	CHECK(ndata10[0] == 2048);
 	CHECK(ndata10[1] == 2049);
 	CHECK(ndata10[2] == 2050);
@@ -8234,8 +8224,7 @@ TEST_CASE("test_indexing_from_pytorch") {
 	CHECK(ndata10[1022] == 3070);
 	CHECK(ndata10[1023] == 3071);
 
-	std::shared_ptr<float[]> ndata110 = std::make_unique<float[]>(512);
-	ndata110 = a(1, 1, 0).data();
+	auto ndata110 = a(1, 1, 0).storage();
 	CHECK(ndata110[0] == 3072);
 	CHECK(ndata110[1] == 3073);
 	CHECK(ndata110[2] == 3074);
@@ -8749,8 +8738,7 @@ TEST_CASE("test_indexing_from_pytorch") {
 	CHECK(ndata110[510] == 3582);
 	CHECK(ndata110[511] == 3583);
 
-	std::shared_ptr<float[]> ndata111 = std::make_unique<float[]>(512);
-	ndata111 = a(1, 1, 1).data();
+	auto ndata111 = a(1, 1, 1).storage();
 	CHECK(ndata111[0] == 3584);
 	CHECK(ndata111[1] == 3585);
 	CHECK(ndata111[2] == 3586);
@@ -9264,8 +9252,7 @@ TEST_CASE("test_indexing_from_pytorch") {
 	CHECK(ndata111[510] == 4094);
 	CHECK(ndata111[511] == 4095);
 
-	std::shared_ptr<float[]> ndata11 = std::make_unique<float[]>(1024);
-	ndata11 = a(1, 1).data();
+	auto ndata11 = a(1, 1).storage();
 	CHECK(ndata11[0] == 3072);
 	CHECK(ndata11[1] == 3073);
 	CHECK(ndata11[2] == 3074);
@@ -10291,8 +10278,7 @@ TEST_CASE("test_indexing_from_pytorch") {
 	CHECK(ndata11[1022] == 4094);
 	CHECK(ndata11[1023] == 4095);
 
-	std::shared_ptr<float[]> ndata1 = std::make_unique<float[]>(2048);
-	ndata1 = a(1).data();
+	auto ndata1 = a(1).storage();
 	CHECK(ndata1[0] == 2048);
 	CHECK(ndata1[1] == 2049);
 	CHECK(ndata1[2] == 2050);

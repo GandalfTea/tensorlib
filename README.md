@@ -1,59 +1,106 @@
 
 Lightweight header-only tensor library for C++17 and later.
 
+<!--
 &nbsp;
 
-### Data initialization
+### Neural networks
+```c++
+#include "tensor.h"
 
-The default constructor uses a `std::unique_ptr<T[]>` to an array with elements of type `T`. This requires the total number of elements in the tensor as second argument `size`. Shape is either a `std::initializer_list<uint32_t>` or a `tensor::sized_array<uint32_t>`. Data allocation is left to the user.
-```c++
-Tensor(std::unique_ptr<T[]> &arr, size_t size, std::initializer_list<uint32_t> shape, Device device=CPU);
-Tensor(std::unique_ptr<T[]> &arr, size_t size, sized_array<uint32_t> shape, Device device=CPU);
+using tensorlib::Tensor;
+using std::sqrt;
+
+class LinearNet {
+  Tensor<float> w1, b1, w2, b2;
+
+  LinearNet() {
+    w1 = Tensor<float>({784, 128}, true).randn(1/sqrt(784), -1/sqrt(784), KAIMING_UNIFORM);
+    w2 = Tensor<float>({128, 10}, true).randn(1/sqrt(128), -1/sqrt(128), KAIMING_UNIFORM);
+    b1 = Tensor<float>({128}).randn(sqrt(128), -sqrt(128), UNIFORM);
+    b2 = Tensor<float>({10}).randn(sqrt(10), -sqrt(10), UNIFORM);
+  }
+
+  operator()(Tensor<float> x) {
+    x.dot(w1).add(b1).relu().dot(w2).add(b2);
+  }
+}
 ```
-* `std::initializer_list<uint32_t>`
+-->
+&nbsp;
+
+
+### Initialisation
+Create a virtual tensor and allocate the memory:
 ```c++
-auto data = std::unique_ptr<float[]>( new float[2048*2048]() );
-auto a = Tensor<float>(data, 2048*2048, {2, 1024, 2048});
+Tensor<float> a = Tensor<float>({1024, 1024}).allocate();
 ```
-* `tensor::sized_array<T>` is used to programatically size a tensor of known dimensions number but unknown dimensions sizes. It explicitly tracks the number of dimensions in `size`.
+or fill with special values:
 ```c++
-template<typename T>
-struct tensor::sized_array {
-  std::shared_ptr<T[]> ptr = nullptr;
-  size_t size = 0;
-};
+Tensor<float> b = Tensor<float>({1024, 1024}).randn(); // 0-1, box-muller normal
+Tensor<float> c = Tensor<float>({1024, 1024}).fill(0.f);
+Tensor<float> d = Tensor<float>({1024, 1024}).eye();
+```
+Copy existing tensors:
+```c++
+Tensor<float> e = Tensor<>::like(a); // returns virtual tensor with no memory
+Tensor<float> f = a.copy();          // new tensor that shares memory with a
+Tensor<float> g = a.clone();         // new tensor that copied the memory of a
 ```
 ```c++
-sized_array<uint32_t> s { std::unique_ptr<uint32_t[]>(new uint32_t[2]()), 2};
-s.ptr[0] = 2;
-s.ptr[1] = 3;
-auto b = Tensor<b>(data, 2*3, s);
+Tensor<float> h = Tensor<>::like(a).eye();    // identity tensor identical to a
+Tensor<float> i = Tensor<>::like(a).fill(0.f) // 0-full tensor identical to a
+```
+All the memory allocated by the library is aligned according to the macro `MEMORY_ALIGNMENT` defaulted to 32 bytes for AVX-256, unless the size of the block is smaller then the alignment requirement.
+
+
+&nbsp;
+
+### Data initialisation
+
+Allocate the data using the included `alloc<T>` function. This ensures the memory block is aligned correctly:
+```c++
+float* data = alloc<float>(1024*1024);
+Tensor<float> a = Tensor<float>(data, 1024*1024, {1024, 1024});
+```
+If you must allocate the memory yourself, use `aligned_alloc` or `malloc` if the number of items is small. Never use `new[]`, because garbage collection is handled with `free()` and the memory will leak.
+```c++
+float* data = static_cast<float*>( aligned_alloc(MEMORY_ALIGNMENT, 1024*1024*sizeof(float)) );
+Tensor<float> b = Tensor<float>(data, 1024*1024, {1024/2, 2, 1024});
+```
+If the macro `FORCE_ALIGNMENT` is defined, all input arrays will be copied into new aligned memory blocks. You are free to use whatever array allocation you want:
+```c++
+#define FORCE_ALIGNMENT
+float* data[1024*1024];
+Tensor<float> c = Tensor<float>(data, 1024*1024, {1024, 1024});
 ```
 
 &nbsp;
 
-Elements can also be entered manually using an `std::initializer_list<T>` in which case there is no `size` argument:
+Elements can also be entered manually:
 ```c++
-auto a = Tensor<float>({1, 2, 3, 4, 5}, {2, 3});
-auto b = Tensor<float>({1, 2, 3, 4, 5}, s); // sized_array
+Tensor<float> a = Tensor<float>({5}, {1});
+Tensor<float> b = Tensor<float>({0, 1, 2, 3, 4, 5}, {2, 3});
 ```
+
 &nbsp;
 
 ### Helpers and Getters
 ```c++
-auto a = Tensor<float>(data, 2048*2048, {2, 1024, 2048});
+Tensor<float> a = Tensor<float>({2, 1024, 2048});
 ```
 * `a.ndim()` returns number of dimensions.
 * `a.numel()` returns the number of elements in the tensor.
-* `a.disklen()` returns the number of elements stored in memory.
-* `a.bgrad` returns a `bool` that tracks if the tensor keeps a gradient array.
-* `a.bresolved` returns a `bool` that tracks if the view and `numel` values all exist in the underlying disk data.
-* `a.is_initialized` returns a `bool` that tracks if underlying tensor data exists.   
-       
-Modifying the following can destroy the internal integrity of the tensor object:
-* `a.data()` returns a `std::shared_ptr<T[]>` to the underlying tensor data.
-* `a.view()` returns a `std::shared_ptr<uint32_t[]>` to the tensor view data.
-* `a.strides()` returns a `std::shared_ptr<uint32_t[]>` to the tensor stride data.
+* `a.device()` returns the device on which the memory is stored.
+* `a.memsize()` returns the number of elements allocated in memory.      
+* `a.has_grad()` returns a `bool` that tracks if the tensor keeps a gradient.
+* `a.is_initialized()` returns a `bool` that tracks if underlying tensor data exists.       
+* `a.is_allocated()` returns a `bool` that tracks if all the tensor values exist in memory.
+* `a.is_eye()` returns a `bool` that tracks if the tensor is an indentity tensor.
+* `a.is_sub()` returns a `bool` that tracks if the tensor is a subtensor.   
+* `a.storage()` returns a `const T*` to the underlying tensor data.
+* `a.shape()` returns a `const uint32_t*` to the tensor view data.
+* `a.strides()` returns a `const uint32_t*` to the tensor stride data.
 
 &nbsp;
 

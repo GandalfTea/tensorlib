@@ -11,26 +11,17 @@
 #define EPSILON 0.001
 #define KOLMOGOROV_SMIRNOV_ALPHA 0.001
 
-using namespace tensor;
+using namespace tensorlib;
 using Catch::Matchers::Floating::WithinAbsMatcher;
 
 // Statistical Functions used to test random number distributions
 
-bool constexpr max_f32(float a, float b, float epsilon=EPSILON) {
-	return (a - b) > ( (fabs(a) < fabs(b) ? fabs(b) : fabs(a)) * epsilon);
-}
-
-bool constexpr eql_f32(float a, float b, float epsilon=EPSILON) {
-	return fabs(a-b) <= ( (fabs(a) > fabs(b) ? fabs(b) : fabs(a)) * epsilon);
-}
-
-bool constexpr aeql_f32(float a, float b, float epsilon=EPSILON) {
-	return fabs(a-b) <= ( (fabs(a) < fabs(b) ? fabs(b) : fabs(a)) * epsilon);
-}
+bool constexpr max_f32(float a, float b, float epsilon=EPSILON) { return (a - b) > ( (fabs(a) < fabs(b) ? fabs(b) : fabs(a)) * epsilon); }
+bool constexpr aeql_f32(float a, float b, float epsilon=EPSILON) { return fabs(a-b) <= ( (fabs(a) < fabs(b) ? fabs(b) : fabs(a)) * epsilon); }
 
 #include <iostream>
 // alpha is allowed margin of error, alpha < .20
-bool uniform_kolmogorov_smirnov_test(std::unique_ptr<float[]> &data, size_t len, float alpha=KOLMOGOROV_SMIRNOV_ALPHA) {
+bool uniform_kolmogorov_smirnov_test(float* data, size_t len, float alpha=KOLMOGOROV_SMIRNOV_ALPHA) {
 	float D{}, d_plus_max{}, d_min_max{};
 	std::sort(&data[0], &data[len]);
 	for(size_t i=0; i<len; i++) {
@@ -57,12 +48,13 @@ float get_cdf_normal_dist(float x, float mean=0, float stdiv=1) {
 	return 0.5*(1+std::erf(arg));
 }
 
-bool normal_kolmogorov_smirnov_test(std::unique_ptr<float[]> &data, size_t len, float mean=0.f, float std=1.f, float alpha=KOLMOGOROV_SMIRNOV_ALPHA) {
+bool normal_kolmogorov_smirnov_test(float* data, size_t len, float mean=0.f, float std=1.f, float alpha=KOLMOGOROV_SMIRNOV_ALPHA) {
 	float D{};
 	for(size_t i=0; i<len; i++) { data[i] = std::abs(data[i]); }
 	std::sort(&data[0], &data[len]);
 	float f = mean-4*std;
-	float skew = 3*(mean - data[std::floor(len/2)])/std;
+  size_t flr = std::floor(len/2);
+	float skew = 3*(mean - data[flr])/std;
 	for(size_t i=1; i<=len; i++) {
 		//float d_pls = (((float)i+1)/len)-data[i-1];
 		//float d_min = data[i-1]-((float)i/len);
@@ -84,20 +76,20 @@ bool normal_kolmogorov_smirnov_test(std::unique_ptr<float[]> &data, size_t len, 
 	return !max_f32(D, critical_value, 0.9f);
 }
 
-float get_mean(std::unique_ptr<float[]> &data, size_t len) {
+float get_mean(float* data, size_t len) {
 	float sum=0.f;
 	for(size_t i=0; i<len; i++) sum += data[i];
 	return sum/len;
 }
 
-float get_std(std::unique_ptr<float[]> &data, size_t len) {
+float get_std(float* data, size_t len) {
 	float sum=0;
 	float mean = get_mean(data, len);
 	for(size_t i=0; i<len; i++) sum += std::pow((data[i]-mean), 2);
 	return std::sqrt(sum/len);
 }
 
-bool dagostino_skewness_test(std::unique_ptr<float[]> &data, size_t len, double* ret=nullptr) {
+bool dagostino_skewness_test(float* data, size_t len, double* ret=nullptr) {
 	double mean = 0;
 	for(size_t i=0; i<len; i++) mean += data[i] / len;
 	double g1_top, g1_btm, g2_top, g2_btm, g1, g2, Y, b2_top, b2_btm, b2, w2, std, alpha, Z;
@@ -123,7 +115,7 @@ bool dagostino_skewness_test(std::unique_ptr<float[]> &data, size_t len, double*
 	return max_f32(Z, -0.72991, 0.001) && max_f32(1.21315, Z, 0.001); // 95% confidence 
 }
 
-bool dagostino_kurtosis_test(std::unique_ptr<float[]> &data, size_t len, double* ret=nullptr) {
+bool dagostino_kurtosis_test(float* data, size_t len, double* ret=nullptr) {
 	double mean = 0;
 	for(size_t i=0; i<len; i++) mean += data[i] / len;
 	double krt_top=0, krt_btm=0, krt=0, Ekrt=0, Var_krt=0, x=0, B_first=0, B_secnd=0, B=0, A=0, pos=0, Z=0;
@@ -150,7 +142,7 @@ bool dagostino_kurtosis_test(std::unique_ptr<float[]> &data, size_t len, double*
 	return max_f32(Z, -0.72991, 0.001) && max_f32(1.21315, Z, 0.001); // 95% confidence 
 }
 
-bool dagostino_omnibus(std::unique_ptr<float[]> &data, size_t len, double* ret=nullptr) {
+bool dagostino_omnibus(float* data, size_t len, double* ret=nullptr) {
 	double Z1, Z2, p=0, pval=0;
 	dagostino_skewness_test(data, len, &Z1);
 	dagostino_kurtosis_test(data, len, &Z2);
@@ -176,7 +168,7 @@ TEST_CASE("Helpers", "[core]") {
 		CHECK(aeql_f32(0.1, 0.2, 0.5));
 	}
 	SECTION("uniform kolmogorov smirnov test") {
-		std::unique_ptr<float[]> data = std::make_unique<float[]>(10);
+    float*  data = alloc<float>(10);
 		float j = 0.1;
 		for(size_t i=0; i<10; i++, j+=0.1) { data[i] = j; }
 		CHECK(uniform_kolmogorov_smirnov_test(data, 10));
@@ -191,13 +183,13 @@ TEST_CASE("Helpers", "[core]") {
 	}
 
 	SECTION("mean") {
-		std::unique_ptr<float[]> data = std::make_unique<float[]>(10);
+    float* data = alloc<float>(10);
 		for(size_t i=0; i<10; i++) { data[i] = i; }
 		CHECK(eql_f32(get_mean(data, 10), 4.5));
 	}
 
 	SECTION("std") {
-		std::unique_ptr<float[]> data = std::make_unique<float[]>(10);
+    float* data = alloc<float>(10);
 		for(size_t i=0; i<10; i++) { data[i] = i; }
 		float a = get_std(data, 10);
 		CHECK(eql_f32(a, 2.872281323269));
@@ -208,42 +200,47 @@ TEST_CASE("Generators", "stats") {
 	SECTION("Random Number Generators") {
 		SECTION("Uniform Distribution") {
 			SECTION("0 - 1") {
-				std::unique_ptr<float[]> a = Tensor<>::f32_generate_uniform_distribution(500);
+        float* a = alloc<float>(500);
+				Tensor<>::f32_randn_uniform(&a[0], 500);
 				for(size_t i=0; i < 500; i++) {
 					CHECK(max_f32(a[i], -0.1f));
 					CHECK(max_f32(1.3f, a[i]));
 				}
-				CHECK(uniform_kolmogorov_smirnov_test(a, 500));
+				CHECK(uniform_kolmogorov_smirnov_test(&a[0], 500));
 			}
 			SECTION("0 - 5") {
-				std::unique_ptr<float[]> a = Tensor<>::f32_generate_uniform_distribution(500, 5.f);
+        float* a = alloc<float>(500);
+				Tensor<>::f32_randn_uniform(&a[0], 500, 5.f);
 				for(size_t i=0; i < 500; i++) {
 					CHECK(max_f32(a[i], -0.1f));
 					CHECK(max_f32(5.1f, a[i]));
 				}
-				CHECK(uniform_kolmogorov_smirnov_test(a, 500));
+				CHECK(uniform_kolmogorov_smirnov_test(&a[0], 500));
 			}
 			SECTION("-5 : -5") {
-				std::unique_ptr<float[]> a = Tensor<>::f32_generate_uniform_distribution(500, 5.f, -5.f);
+        float* a = alloc<float>(500);
+				Tensor<>::f32_randn_uniform(&a[0], 500, 5.f, -5.f);
 				for(size_t i=0; i < 500; i++) {
 					CHECK(max_f32(a[i], -5.1f));
 					CHECK(max_f32(5.1f, a[i]));
 				}
-				CHECK(uniform_kolmogorov_smirnov_test(a, 500));
+				CHECK(uniform_kolmogorov_smirnov_test(&a[0], 500));
 			}
 			SECTION("epsilon .5f") {
-				std::unique_ptr<float[]> a = Tensor<>::f32_generate_uniform_distribution(500, 1.f, 0.f, 0, true, 0.5f);
+        float* a = alloc<float>(500);
+				Tensor<>::f32_randn_uniform(&a[0], 500, 1.f, 0.f, 0, 0.5f);
 				for(size_t i=0; i < 500; i++) {
 					CHECK(max_f32(a[i], 0.4f));
 					CHECK(max_f32(1.1f, a[i]));
 				}
-				CHECK(!uniform_kolmogorov_smirnov_test(a, 500));
+				CHECK(!uniform_kolmogorov_smirnov_test(&a[0], 500));
 			}
 		}
 
 		SECTION("Box-Muller Transform") {
 			SECTION("0-1") {
-				std::unique_ptr<float[]> a = Tensor<>::f32_generate_box_muller_normal_distribution(5000);
+        float* a = alloc<float>(5000);
+				Tensor<>::f32_randn_box_muller_normal(&a[0], 5000);
 				CHECK_THAT(get_mean(a, 5000), WithinAbsMatcher(0.f, 0.1));
 				CHECK_THAT(get_std(a, 5000), WithinAbsMatcher(1.f, 0.1));
 				//CHECK(normal_kolmogorov_smirnov_test(a, 5000, get_mean(a, 5000), get_std(a, 5000))); 
@@ -251,8 +248,9 @@ TEST_CASE("Generators", "stats") {
 					float res = 0;
 					double val, mean=0, max=0, min=1;
 					for(size_t i=0; i < 100; i++) {
-						std::unique_ptr<float[]> a = Tensor<>::f32_generate_box_muller_normal_distribution(5000);
-						res += dagostino_skewness_test(a, 5000, &val);
+            float* a = alloc<float>(5000);
+						Tensor<>::f32_randn_box_muller_normal(&a[0],5000);
+						res += dagostino_skewness_test(&a[0], 5000, &val);
 						mean += val/100;	
 						if(max_f32(val, max)) max=val;
 						if(max_f32(min, val)) min=val;
@@ -265,8 +263,9 @@ TEST_CASE("Generators", "stats") {
 					float res = 0;
 					double val, mean=0, max=0, min=1;
 					for(size_t i=0; i < 100; i++) {
-						std::unique_ptr<float[]> a = Tensor<>::f32_generate_box_muller_normal_distribution(5000);
-						res += dagostino_kurtosis_test(a, 5000, &val);
+            float* a = alloc<float>(5000);
+						Tensor<>::f32_randn_box_muller_normal(&a[0],5000);
+						res += dagostino_kurtosis_test(&a[0], 5000, &val);
 						mean += val/100;	
 						if(max_f32(val, max)) max=val;
 						if(max_f32(min, val)) min=val;
@@ -279,9 +278,10 @@ TEST_CASE("Generators", "stats") {
 					float res = 0;
 					double val1, val2, mean=0, max=0, min=1;
 					for(size_t i=0; i < 100; i++) {
-						std::unique_ptr<float[]> a = Tensor<>::f32_generate_box_muller_normal_distribution(5000);
-						res += dagostino_kurtosis_test(a, 5000, &val1);
-						res += dagostino_skewness_test(a, 5000, &val2);
+            float* a = alloc<float>(5000);
+						Tensor<>::f32_randn_box_muller_normal(&a[0],5000);
+						res += dagostino_kurtosis_test(&a[0], 5000, &val1);
+						res += dagostino_skewness_test(&a[0], 5000, &val2);
 						mean += (val1+val2)/200;	
 						if(max_f32((val1+val2)/2, max)) max=(val1+val2)/2;
 						if(max_f32(min, (val1+val2)/2)) min=(val1+val2)/2;
@@ -294,8 +294,9 @@ TEST_CASE("Generators", "stats") {
 					float res = 0;
 					double val, mean=0, max=0, min=1;
 					for(size_t i=0; i < 100; i++) {
-						std::unique_ptr<float[]> a = Tensor<>::f32_generate_box_muller_normal_distribution(5000);
-						res += dagostino_omnibus(a, 5000, &val);
+            float* a = alloc<float>(5000);
+						Tensor<>::f32_randn_box_muller_normal(&a[0], 5000);
+						res += dagostino_omnibus(&a[0], 5000, &val);
 						mean += val/100;	
 						if(max_f32(val, max)) max=val;
 						if(max_f32(min, val)) min=val;
