@@ -15,7 +15,7 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v3
     - name: Compile Test
-      run: g++ test/test_ntensor_constructors.cc -march=native -I ./ 
+      run: g++ test/test_tensor_constructors.cc -march=native -I ./ 
     - name: Run
       run: ./a.out
 
