@@ -312,5 +312,73 @@ TEST_CASE("Data initialization") {
     free(d);
   }
   */
+
+  SECTION("special constructors") {
+    SECTION("eye") {
+      CHECK_THROWS(Tensor<int>({1}).eye());
+      CHECK_THROWS(Tensor<int>({512}).eye());
+      CHECK_THROWS(Tensor<int>({1, 1}).eye());
+      CHECK_THROWS(Tensor<int>({1, 2}).eye());
+      CHECK_THROWS(Tensor<int>({512, 513}).eye());
+      CHECK_NOTHROW(Tensor<int>({2, 2}).eye());
+      CHECK_NOTHROW(Tensor<int>({13, 13}).eye());
+      CHECK_NOTHROW(Tensor<int>({2, 2, 2}).eye());
+      CHECK_NOTHROW(Tensor<int>({512, 512}).eye());
+      CHECK_NOTHROW(Tensor<int>({512, 512, 512}).eye());
+      Tensor<int> a = Tensor<int>({512, 512}).eye();  
+      for(size_t i=0; i<512; i++) {
+        for(size_t j=0; j<512; j++) {
+          CHECK(a(i,j).item() == ((i==j)?1:0));
+        }
+      }
+      /* TODO: multi-dim eye is weird
+      Tensor<int> b = Tensor<int>({128, 128, 128}).eye();  
+      for(size_t i=0; i<512; i++) {
+        for(size_t j=0; j<512; j++) {
+          for(size_t k=0; k<512; k++) {
+            CHECK(b(i,j,k).item() == ((i==j&&j==k)?1:0));
+          }
+        }
+      }
+      */
+    }
+    SECTION("eye allocated") {
+      Tensor<int> a = Tensor<int>({128, 128}).eye().allocate();  
+      const int* d = a.storage();
+      for(size_t i=0; i<128; i++) {
+        for(size_t j=0; j<128; j++) {
+          CHECK(d[i*128+j] == ((i==j)?1:0));
+        }
+      }
+      /* 
+      Tensor<int> b = Tensor<int>({128, 128, 128}).eye().allocate();  
+      d = b.storage();
+      for(size_t i=0; i<128; i++) {
+        for(size_t j=0; j<128; j++) {
+          for(size_t k=0; k<128; k++) {
+            CHECK(d[(i*128*128)+(j*128)+k] == ((i==j&&j==k)?1:0));
+            if(d[(i*128*128)+(j*128)+k] == 1) std::cout << i << " " << j << " " << k << std::endl; 
+          }
+        }
+      }
+      */
+    }
+    SECTION("arange") {
+      Tensor<int> a = Tensor<int>::arange(512);
+      for(size_t i=0; i<512; i++) CHECK(a(i).item() == i);
+      Tensor<int> b = Tensor<int>::arange(512, 128);
+      for(size_t i=0, j=128; i<512-128; i++, j++) CHECK(b(i).item() == j);
+      Tensor<int> c = Tensor<int>::arange(512, 128, 2);
+      for(size_t i=0, j=128; i<(512-128)/2; i++, j+=2) CHECK(c(i).item() == j);
+      float j = 0.f;
+      Tensor<float> d = Tensor<float>::arange(1.f, 0.f, 0.1f);
+      for(size_t i=0; i<(1.f-0.f)/0.1; i++, j+=0.1) CHECK( eql_f32(d(i).item(), j));
+      j = -1.f;
+      Tensor<float> e = Tensor<float>::arange(0.f, -1.f, 0.1f);
+      for(size_t i=0; i<(1.f-0.f)/0.1; i++, j+=0.1) CHECK( eql_f32(e(i).item(), j));
+      Tensor<int> f = Tensor<int>::arange(0, 100, -1);
+      for(size_t i=0, j=100; i<100; i++, j-=1) CHECK(f(i).item() == j);
+    }
+  }
 }
 
