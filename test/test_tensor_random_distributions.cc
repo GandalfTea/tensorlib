@@ -3,7 +3,7 @@
 #include <cassert>
 #include <cmath>
 #include "catch.hpp"
-#include "ntensor.h"
+#include "tensor.h"
 
 #include <gsl/gsl_cdf.h>
 

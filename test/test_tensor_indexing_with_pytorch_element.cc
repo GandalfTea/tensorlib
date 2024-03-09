@@ -1,6 +1,6 @@
 
 #define CATCH_CONFIG_MAIN 
-#include "ntensor.h"
+#include "tensor.h"
 #include "catch.hpp"
 
 using namespace tensorlib;

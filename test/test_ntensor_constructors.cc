@@ -9,7 +9,7 @@
 
 #define CATCH_CONFIG_MAIN
 #include "catch.hpp"
-#include "ntensor.h"
+#include "tensor.h"
 
 
 #define N 1024
