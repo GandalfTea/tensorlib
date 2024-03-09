@@ -32,14 +32,6 @@ jobs:
     - name: Run
       run: ./a.out
 
-    steps: 
-    - name: Checkout Code
-      uses: actions/checkout@v3
-    - name: Compile Test
-      run: g++ test/test_ntensor_constructors.cc -march=native -I ./ 
-    - name: Run
-      run: ./a.out
-
   test_tensor_api:
     name: Tensor API 
     runs-on: ubuntu-latest
