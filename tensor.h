@@ -511,7 +511,7 @@ class Tensor {
     }
     Tensor<T>& sqrt() {
       T* nd = alloc<float>(disklen);
-      intrin::_sqrt(static_cast<float*>(&mstorage[0]), &nd[0], disklen);
+      intrin::_sqrt(&mstorage[0], &nd[0], disklen);
       free(mstorage);
       mstorage = &nd[0];
       return *this;
@@ -772,8 +772,9 @@ void _sgemm(float* a, float* b, float* c, int m, int n, int k) {
 #endif
 
 // Unary and Binary OPs kernels
-#ifdef __AVX__
-inline void _execute_binar_op(float* a, float* b, float* c, size_t len, __m256 (*avx_f)(__mm256, __m256)) {
+#ifdef __AVX2__
+/* TODO: undefined reference when passing as argument
+inline void _execute_binary_op(float* a, float* b, float* c, size_t len, __m256 (*f)(__m256 lhs, __m256 rhs)) {
   __m256 b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4;
   #pragma omp parallel for private(b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4) \
    shared(a, b, c, len) default(none) collapse(1) num_threads(omp_get_max_threads())
@@ -783,8 +784,8 @@ inline void _execute_binar_op(float* a, float* b, float* c, size_t len, __m256 (
     b3 = _mm256_load_ps(&a[16]); b4 = _mm256_load_ps(&a[24]);
     b5 = _mm256_load_ps(&b[0]);  b6 = _mm256_load_ps(&b[8]);
     b7 = _mm256_load_ps(&b[16]); b8 = _mm256_load_ps(&b[24]);
-    c1 = avx_f(b1, b5); c2 = avx_f(b2, b6);
-    c3 = avx_f(b3, b7); c4 = avx_f(b4, b8);
+    c1 = f(b1, b5); c2 = f(b2, b6);
+    c3 = f(b3, b7); c4 = f(b4, b8);
     _mm256_store_ps(&wc[0],  c1); _mm256_store_ps(&wc[8],  c2);
     _mm256_store_ps(&wc[16], c3); _mm256_store_ps(&wc[24], c4);
     a+=32; b+=32;
@@ -792,21 +793,66 @@ inline void _execute_binar_op(float* a, float* b, float* c, size_t len, __m256 (
   size_t r=len%32;
   for(size_t i=0; i<r; i++) c[len-r+i]=a[len-r+i]+b[len-r+i];
 }
+*/
+
 inline void _add(float* a, float* b, float* c, size_t len) { 
-  _execute_binary_op(a, b, c, len, &_mm256_add_ps); 
+  __m256 b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4;
+  #pragma omp parallel for private(b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4) \
+   shared(a, b, c, len) default(none) collapse(1) num_threads(omp_get_max_threads())
+  for(size_t i=0; i<len; i+=32) { // 32 floats at a time
+    float* wc = &c[i];
+    b1 = _mm256_load_ps(&a[0]);  b2 = _mm256_load_ps(&a[8]);
+    b3 = _mm256_load_ps(&a[16]); b4 = _mm256_load_ps(&a[24]);
+    b5 = _mm256_load_ps(&b[0]);  b6 = _mm256_load_ps(&b[8]);
+    b7 = _mm256_load_ps(&b[16]); b8 = _mm256_load_ps(&b[24]);
+    c1 = _mm256_add_ps(b1, b5); c2 = _mm256_add_ps(b2, b6);
+    c3 = _mm256_add_ps(b3, b7); c4 = _mm256_add_ps(b4, b8);
+    _mm256_store_ps(&wc[0],  c1); _mm256_store_ps(&wc[8],  c2);
+    _mm256_store_ps(&wc[16], c3); _mm256_store_ps(&wc[24], c4);
+    a+=32; b+=32;
+ }
   size_t r=len%32;
   for(size_t i=0; i<r; i++) c[len-r+i]=a[len-r+i]+b[len-r+i];
 }
 inline void _sub(float* a, float* b, float* c, size_t len) {
-  _execute_binary_op(a, b, c, len, &_mm256_sub_ps); 
+  __m256 b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4;
+  #pragma omp parallel for private(b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4) \
+   shared(a, b, c, len) default(none) collapse(1) num_threads(omp_get_max_threads())
+  for(size_t i=0; i<len; i+=32) { // 32 floats at a time
+    float* wc = &c[i];
+    b1 = _mm256_load_ps(&a[0]);  b2 = _mm256_load_ps(&a[8]);
+    b3 = _mm256_load_ps(&a[16]); b4 = _mm256_load_ps(&a[24]);
+    b5 = _mm256_load_ps(&b[0]);  b6 = _mm256_load_ps(&b[8]);
+    b7 = _mm256_load_ps(&b[16]); b8 = _mm256_load_ps(&b[24]);
+    c1 = _mm256_sub_ps(b1, b5); c2 = _mm256_sub_ps(b2, b6);
+    c3 = _mm256_sub_ps(b3, b7); c4 = _mm256_sub_ps(b4, b8);
+    _mm256_store_ps(&wc[0],  c1); _mm256_store_ps(&wc[8],  c2);
+    _mm256_store_ps(&wc[16], c3); _mm256_store_ps(&wc[24], c4);
+    a+=32; b+=32;
+ }
   size_t r=len%32;
   for(size_t i=0; i<r; i++) c[len-r+i]=a[len-r+i]-b[len-r+i];
 }
 inline void _div(float* a, float* b, float* c, size_t len) {
-  _execute_binary_op(a, b, c, len, &_mm256_div_ps); 
+  __m256 b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4;
+  #pragma omp parallel for private(b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4) \
+   shared(a, b, c, len) default(none) collapse(1) num_threads(omp_get_max_threads())
+  for(size_t i=0; i<len; i+=32) { // 32 floats at a time
+    float* wc = &c[i];
+    b1 = _mm256_load_ps(&a[0]);  b2 = _mm256_load_ps(&a[8]);
+    b3 = _mm256_load_ps(&a[16]); b4 = _mm256_load_ps(&a[24]);
+    b5 = _mm256_load_ps(&b[0]);  b6 = _mm256_load_ps(&b[8]);
+    b7 = _mm256_load_ps(&b[16]); b8 = _mm256_load_ps(&b[24]);
+    c1 = _mm256_div_ps(b1, b5); c2 = _mm256_div_ps(b2, b6);
+    c3 = _mm256_div_ps(b3, b7); c4 = _mm256_div_ps(b4, b8);
+    _mm256_store_ps(&wc[0],  c1); _mm256_store_ps(&wc[8],  c2);
+    _mm256_store_ps(&wc[16], c3); _mm256_store_ps(&wc[24], c4);
+    a+=32; b+=32;
+ }
   size_t r=len%32;
   for(size_t i=0; i<r; i++) c[len-r+i]=a[len-r+i]/b[len-r+i];
 }
+/*
 inline void _sqrt(float* a, float* c, size_t len) {
   __m256 b1, b2, b3, b4, c1, c2, c3, c4;
   #pragma omp parallel for private(b1, b2, b3, b4, c1, c2, c3, c4) \
@@ -823,11 +869,13 @@ inline void _sqrt(float* a, float* c, size_t len) {
   size_t r=len%32;
   for(size_t i=0; i<r; i++) c[len-r+i]=std::sqrt(a[len-r+i]);
 }
+*/
+inline void _sqrt (float* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::sqrt(a[i]); }
 // TODO: replace with ymm
 template<typename T> inline void _neg (T* a, T* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]*-1; }
 inline void _sin (float* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::sin(a[i]); }
 inline void _exp2(float* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::exp2(a[i]); }
-inline void _log2(float* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::exp2(a[i]); }
+inline void _log2(float* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::log2(a[i]); }
 
 inline void _sin (int* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::sin(a[i]); }
 inline void _exp2(int* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::exp2(a[i]); }
