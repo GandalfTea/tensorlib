@@ -33,17 +33,28 @@ using std::size_t;
 
 // kernels
 namespace tensorlib::intrin {
-  static void _t_f(const float* from, float* to, int lda, int ldb);
-  static void _t_i(const int* from, int* to, int lda, int ldb);
+  static void _t(const float* from, float* to, int lda, int ldb);
+  static void _t(const int* from, int* to, int lda, int ldb);
   void _sgemm(float* a, float* b, float* c, int m, int n, int k);
   void _igemm(int* a, int* b, int* c, int m, int n, int k);
-  void _add_f(float* a, float* b, float* c, size_t len);
-  void _sub_f(float* a, float* b, float* c, size_t len);
-  void _div_f(float* a, float* b, float* c, size_t len);
-  void _sqrt_f(float* a, float* b, float* c, size_t len);
-  void _add_i(int* a, int* b, int* c, size_t len);
-  void _sub_i(int* a, int* b, int* c, size_t len);
-  void _div_i(int* a, int* b, int* c, size_t len);
+
+  template<typename T> void _neg (T*,T*, size_t);
+
+  void _add (float* a, float* b, float* c, size_t len);
+  void _sub (float* a, float* b, float* c, size_t len);
+  void _div (float* a, float* b, float* c, size_t len);
+  void _exp2(float* a, float* c, size_t len);
+  void _log2(float* a, float* c, size_t len);
+  void _sin (float* a, float* c, size_t len);
+  void _sqrt(float* a, float* c, size_t len);
+
+  void _add (int* a, int* b, int* c, size_t len);
+  void _sub (int* a, int* b, int* c, size_t len);
+  void _exp2(int* a, float* c, size_t len);
+  void _log2(int* a, float* c, size_t len);
+  void _div (int* a, float* b, float* c, size_t len);
+  void _sin (int* a, float* c, size_t len);
+  void _sqrt(int* a, float* c, size_t len);
 }
 
 #if DEBUG > 2
@@ -468,8 +479,8 @@ class Tensor {
       if(!ballocated || !binitialized) throw std::runtime_error("Cannot transpose uninitialised Tensor.");
       if(mview->numdim != 2) throw std::runtime_error("Transposition can only be done on 2D Tensors. Use .permute().");
       T* nd = alloc<T>(mview->elem);
-      if(std::is_floating_point<T>::value) intrin::_t_f((const T*)&mstorage[0], &nd[0], mview->elem);
-      else intrin::_t_i((const T*)&mstorage[0], &nd[0], mview->elem);
+      if(std::is_floating_point<T>::value) intrin::_t((const T*)&mstorage[0], &nd[0], mview->elem);
+      else intrin::_t((const T*)&mstorage[0], &nd[0], mview->elem);
       free(mstorage);
       mstorage = &nd[0];
     }
@@ -477,22 +488,41 @@ class Tensor {
     // Unary OPs /*--=----------------------------------------------------------------------------------------*/
     // NOTE: log, sin and sqrt always return a float tensor. if the current one is not float, return a new one
 
-    Tensor<T>& exp2() {}
-    Tensor<T>& log2() {}
-    Tensor<T>& sin() {}
+    Tensor<T>& exp2() {
+      T* nd = alloc<float>(disklen);
+      intrin::_exp2(&mstorage[0], &nd[0], disklen);
+      free(mstorage);
+      mstorage = &nd[0];
+      return *this; 
+    }
+    Tensor<T>& log2() {
+      T* nd = alloc<float>(disklen);
+      intrin::_log2(&mstorage[0], &nd[0], disklen);
+      free(mstorage);
+      mstorage = &nd[0];
+      return *this; 
+    }
+    Tensor<T>& sin() {
+      T* nd = alloc<float>(disklen);
+      intrin::_sin(&mstorage[0], &nd[0], disklen);
+      free(mstorage);
+      mstorage = &nd[0];
+      return *this; 
+    }
     Tensor<T>& sqrt() {
       T* nd = alloc<float>(disklen);
-      intrin::_sqrt_f(static_cast<float*>(&mstorage[0]), &nd[0], disklen);
-      if(std::is_floating_point<T>::value) {
-        free(mstorage);
-        mstorage = &nd[0];
-      } else {
-        uint32_t* shp = new uint32_t[mview->numdim];
-        std::memcpy(&shp[0], &(mview->view[0]), mview->numdim*sizeof(uint32_t));
-        return Tensor<float>(&nd[0], disklen, &shp[0], mview->numdim, bgrad, mdevice);
-      }
+      intrin::_sqrt(static_cast<float*>(&mstorage[0]), &nd[0], disklen);
+      free(mstorage);
+      mstorage = &nd[0];
+      return *this;
     }
-    Tensor<T>& neg() {}
+    Tensor<T>& neg() {
+      T* nd = alloc<T>(disklen);
+      intrin::_neg(&mstorage[0], &nd[0], disklen);
+      free(mstorage);
+      mstorage = &nd[0];
+      return *this; 
+    }
 
     // Binary OPs /*------------------------------------------------------------------------------------------*/
 
@@ -506,12 +536,10 @@ class Tensor {
           throw std::runtime_error("Tensors must have the same shape for add().");
     }
 
-    inline Tensor<T> execute_binary_op(Tensor<T>& lhs, T* rhs, void (*fk)(float* lhs, float* rhs, float* r, size_t len), 
-                                      void (*ik)(int* lhs, int*rhs, int* r, size_t len), size_t len) 
+    inline Tensor<T> execute_binary_op(Tensor<T>& lhs, T* rhs, void (*f)(float* lhs, float* rhs, float* r, size_t len), size_t len) 
     {
       T* nd = alloc<T>(len);
-      if(std::is_floating_point<T>::value) fk(lhs.mstorage, &rhs[0], &nd[0], len);
-      else ik((int*)lhs.mstorage, (int*)&rhs[0], (int*)&nd[0], len);
+      f(lhs.mstorage, &rhs[0], &nd[0], len);
       uint32_t* shp = new uint32_t[lhs.mview->numdim];
       std::memcpy(&shp[0], &(lhs.mview->view[0]), mview->numdim*sizeof(uint32_t));
       return Tensor<T>(&nd[0], disklen, &shp[0], mview->numdim, bgrad, mdevice);
@@ -519,19 +547,19 @@ class Tensor {
 
     Tensor<T> dot(Tensor<T>& rhs) {
       check_data_for_binaryop(*this, rhs);
-      return execute_binary_op(*this, rhs.mstorage, &intrin::_sgemm, &intrin::_igemm, disklen);
+      return execute_binary_op(*this, rhs.mstorage, &intrin::_sgemm, disklen);
     }
     Tensor<T> add(Tensor<T>& rhs) {
       check_data_for_binaryop(*this, rhs);
-      return execute_binary_op(*this, rhs.mstorage, &intrin::_add_f, &intrin::_add_i, disklen);
+      return execute_binary_op(*this, rhs.mstorage, &intrin::_add, disklen);
     }
     Tensor<T> sub(Tensor<T>& rhs) {
       check_data_for_binaryop(*this, rhs);
-      return execute_binary_op(*this, rhs.mstorage, &intrin::_sub_f, &intrin::_sub_i, disklen);
+      return execute_binary_op(*this, rhs.mstorage, &intrin::_sub, disklen);
     }
     Tensor<T> div(Tensor<T>& rhs) {
       check_data_for_binaryop(*this, rhs);
-      return execute_binary_op(*this, rhs.mstorage, &intrin::_div_f, &intrin::_div_i, disklen);
+      return execute_binary_op(*this, rhs.mstorage, &intrin::_div, disklen);
     }
 
     Tensor<T> max() {}
@@ -542,11 +570,11 @@ class Tensor {
 
     // Static data generation /*------------------------------------------------------------------------------*/
 		static void f32_randn_uniform(float* to, uint32_t count, float up=1.f, float down=0.f, double seed=0.f, float e=0.f) {
- 			static std::mt19937 rng(std::random_device{}());
+ 			std::mt19937 rng(std::random_device{}());
 			if(!eql_f32(seed, 0.f)) rng.seed(seed);
-			static std::uniform_real_distribution<float> dist(down, up);
+			std::uniform_real_distribution<float> dist(down, up);
 			if(!eql_f32(e, 0.f)) for(size_t i=0; i<count; i++) do to[i] = dist(rng); while (to[i] <= e);
-			else for(size_t i=0; i<count; i++) to[i] = dist(rng);
+			else for(size_t i=0; i<count; i++) to[i] = dist(rng); 
 		}
 
 		static void f32_randn_chi_squared(float* to, uint32_t count, float up=1.f, float down=0.f, double seed=0) {
@@ -596,9 +624,8 @@ namespace intrin {
 
 // transpose kernel
 #if defined(__AVX__)
-static inline void _t_f(const float* from, float* to, int lda, int ldb) {
-  __m256 t0, t1, t2, t3, t4,t5, t6, t7,
-         r0, r1, r2, r3, r4, r5, r6, r7;
+static inline void _t(const float* from, float* to, int lda, int ldb) {
+  __m256 t0, t1, t2, t3, t4,t5, t6, t7, r0, r1, r2, r3, r4, r5, r6, r7;
   r0 = _mm256_insertf128_ps(_mm256_castps128_ps256(_mm_load_ps(&from[0*lda+0])), _mm_load_ps(&from[4*lda+0]), 1);
   r1 = _mm256_insertf128_ps(_mm256_castps128_ps256(_mm_load_ps(&from[1*lda+0])), _mm_load_ps(&from[5*lda+0]), 1);
   r2 = _mm256_insertf128_ps(_mm256_castps128_ps256(_mm_load_ps(&from[2*lda+0])), _mm_load_ps(&from[6*lda+0]), 1);
@@ -620,16 +647,22 @@ static inline void _t_f(const float* from, float* to, int lda, int ldb) {
   _mm256_store_ps( &to[4*ldb], r4); _mm256_store_ps( &to[5*ldb], r5);
   _mm256_store_ps( &to[6*ldb], r6); _mm256_store_ps( &to[7*ldb], r7);
 }
-static inline void _t_i(const int* from, int* to, int lda, int ldb) { throw std::runtime_error("AVX256 int kernel does not exist yet."); }
+static inline void _t(const int* from, int* to, int lda, int ldb) { throw std::runtime_error("AVX256 int kernel does not exist yet."); }
 #elif defined (__SSE__)
-static inline void _t_f(const float* from, float* to, int lda, int ldb) { throw std::runtime_error("SSE kernel does not exist yet."); }
-static inline void _t_i(const int* from, int* to, int lda, int ldb) { throw std::runtime_error("SSE kernel does not exist yet."); }
+static inline void _t(const float* from, float* to, int lda, int ldb) { throw std::runtime_error("SSE kernel does not exist yet."); }
+static inline void _t(const int* from, int* to, int lda, int ldb) { throw std::runtime_error("SSE kernel does not exist yet."); }
 #else
-static inline void _t_f(const float* from, float* to, int lda, int ldb) { throw std::runtime_error("default kernel does not exist yet."); }
-static inline void _t_i(const int* from, int* to, int lda, int ldb) { throw std::runtime_error("default kernel does not exist yet."); }
+static inline void _t(const float* from, float* to, int lda, int ldb) { throw std::runtime_error("default kernel does not exist yet."); }
+static inline void _t(const int* from, int* to, int lda, int ldb) { throw std::runtime_error("default kernel does not exist yet."); }
 #endif
 
 // sgemm
+#ifdef __AVX__
+typedef union {
+  __m256 v;
+  float f[8];
+} m256_t;
+
 inline void pack_a(int k, const float* a, int lda, float* to) {
   for(int j=0; j<k; j++) {
     const float *a_ij_ptr = &a[(j*lda)+0]; 
@@ -658,14 +691,6 @@ inline void pack_b(int k, const float* b, int ldb, float* to) {
     b_i0_ptr++; b_i1_ptr++; b_i2_ptr++; b_i3_ptr++; b_i4_ptr++; b_i5_ptr++; b_i6_ptr++; b_i7_ptr++;
   }
 }
-
-// sgemm float
-#ifdef __AVX__
-typedef union {
-  __m256 v;
-  float f[8];
-} m256_t;
-
 inline void _8x8_m256_gemm(int k, const float* a, const float* b, float* c, int ldc) {
   m256_t c0007, c1017, c2027, c3037, c4047, c5057, c6067, c7077, a_vreg, b_p0_vreg;
   c0007.v = _mm256_setzero_ps(); c1017.v = _mm256_setzero_ps();
@@ -718,8 +743,7 @@ void _sgemm(float* a, float* b, float* c, int m, int n, int k) {
     }
   }
 }
-#elif defined(__SSE__) // TODO
-#else
+#elif defined(__SSE__) // TODO make xmm
 template<int block, int tile, int th=1>
 void _sgemm(float* a, float* b, float* c, int m, int n, int k) {
   #pragma omp parallel for shared(c, a, b, m, n, k) default(none) collapse(4) num_threads(th)
@@ -738,6 +762,7 @@ void _sgemm(float* a, float* b, float* c, int m, int n, int k) {
     }
   }
 }
+#else // defaults to SSE for now
 #endif
 
 //sgemm int
@@ -748,7 +773,7 @@ void _sgemm(float* a, float* b, float* c, int m, int n, int k) {
 
 // Unary and Binary OPs kernels
 #ifdef __AVX__
-inline void _add_f(float* a, float* b, float* c, size_t len) {
+inline void _execute_binar_op(float* a, float* b, float* c, size_t len, __m256 (*avx_f)(__mm256, __m256)) {
   __m256 b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4;
   #pragma omp parallel for private(b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4) \
    shared(a, b, c, len) default(none) collapse(1) num_threads(omp_get_max_threads())
@@ -758,8 +783,8 @@ inline void _add_f(float* a, float* b, float* c, size_t len) {
     b3 = _mm256_load_ps(&a[16]); b4 = _mm256_load_ps(&a[24]);
     b5 = _mm256_load_ps(&b[0]);  b6 = _mm256_load_ps(&b[8]);
     b7 = _mm256_load_ps(&b[16]); b8 = _mm256_load_ps(&b[24]);
-    c1 = _mm256_add_ps(b1, b5); c2 = _mm256_add_ps(b2, b6);
-    c3 = _mm256_add_ps(b3, b7); c4 = _mm256_add_ps(b4, b8);
+    c1 = avx_f(b1, b5); c2 = avx_f(b2, b6);
+    c3 = avx_f(b3, b7); c4 = avx_f(b4, b8);
     _mm256_store_ps(&wc[0],  c1); _mm256_store_ps(&wc[8],  c2);
     _mm256_store_ps(&wc[16], c3); _mm256_store_ps(&wc[24], c4);
     a+=32; b+=32;
@@ -767,45 +792,22 @@ inline void _add_f(float* a, float* b, float* c, size_t len) {
   size_t r=len%32;
   for(size_t i=0; i<r; i++) c[len-r+i]=a[len-r+i]+b[len-r+i];
 }
-inline void _sub_f(float* a, float* b, float* c, size_t len) {
-  __m256 b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4;
-  #pragma omp parallel for private(b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4) \
-   shared(a, b, c, len) default(none) collapse(1) num_threads(omp_get_max_threads())
-  for(size_t i=0; i<len; i+=32) { // 32 floats at a time
-    float* wc = &c[i];
-    b1 = _mm256_load_ps(&a[0]);  b2 = _mm256_load_ps(&a[8]);
-    b3 = _mm256_load_ps(&a[16]); b4 = _mm256_load_ps(&a[24]);
-    b5 = _mm256_load_ps(&b[0]);  b6 = _mm256_load_ps(&b[8]);
-    b7 = _mm256_load_ps(&b[16]); b8 = _mm256_load_ps(&b[24]);
-    c1 = _mm256_sub_ps(b1, b5); c2 = _mm256_sub_ps(b2, b6);
-    c3 = _mm256_sub_ps(b3, b7); c4 = _mm256_sub_ps(b4, b8);
-    _mm256_store_ps(&wc[0],  c1); _mm256_store_ps(&wc[8],  c2);
-    _mm256_store_ps(&wc[16], c3); _mm256_store_ps(&wc[24], c4);
-    a+=32; b+=32;
-  }
+inline void _add(float* a, float* b, float* c, size_t len) { 
+  _execute_binary_op(a, b, c, len, &_mm256_add_ps); 
+  size_t r=len%32;
+  for(size_t i=0; i<r; i++) c[len-r+i]=a[len-r+i]+b[len-r+i];
+}
+inline void _sub(float* a, float* b, float* c, size_t len) {
+  _execute_binary_op(a, b, c, len, &_mm256_sub_ps); 
   size_t r=len%32;
   for(size_t i=0; i<r; i++) c[len-r+i]=a[len-r+i]-b[len-r+i];
 }
-inline void _div_f(float* a, float* b, float* c, size_t len) {
-  __m256 b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4;
-  #pragma omp parallel for private(b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4) \
-   shared(a, b, c, len) default(none) collapse(1) num_threads(omp_get_max_threads())
-  for(size_t i=0; i<len; i+=32) { // 32 floats at a time
-    float* wc = &c[i];
-    b1 = _mm256_load_ps(&a[0]);  b2 = _mm256_load_ps(&a[8]);
-    b3 = _mm256_load_ps(&a[16]); b4 = _mm256_load_ps(&a[24]);
-    b5 = _mm256_load_ps(&b[0]);  b6 = _mm256_load_ps(&b[8]);
-    b7 = _mm256_load_ps(&b[16]); b8 = _mm256_load_ps(&b[24]);
-    c1 = _mm256_div_ps(b1, b5); c2 = _mm256_div_ps(b2, b6);
-    c3 = _mm256_div_ps(b3, b7); c4 = _mm256_div_ps(b4, b8);
-    _mm256_store_ps(&wc[0],  c1); _mm256_store_ps(&wc[8],  c2);
-    _mm256_store_ps(&wc[16], c3); _mm256_store_ps(&wc[24], c4);
-    a+=32; b+=32;
-  }
+inline void _div(float* a, float* b, float* c, size_t len) {
+  _execute_binary_op(a, b, c, len, &_mm256_div_ps); 
   size_t r=len%32;
   for(size_t i=0; i<r; i++) c[len-r+i]=a[len-r+i]/b[len-r+i];
 }
-inline void _sqrt_f(float* a, float* c, size_t len) {
+inline void _sqrt(float* a, float* c, size_t len) {
   __m256 b1, b2, b3, b4, c1, c2, c3, c4;
   #pragma omp parallel for private(b1, b2, b3, b4, c1, c2, c3, c4) \
    shared(a, c, len) default(none) collapse(1) num_threads(omp_get_max_threads())
@@ -821,28 +823,52 @@ inline void _sqrt_f(float* a, float* c, size_t len) {
   size_t r=len%32;
   for(size_t i=0; i<r; i++) c[len-r+i]=std::sqrt(a[len-r+i]);
 }
-// TODO: replace
-inline void _add_i(int* a, int* b, int* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]+b[i]; }
-inline void _sub_i(int* a, int* b, int* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]-b[i]; }
-inline void _div_i(int* a, int* b, int* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]/b[i]; }
+// TODO: replace with ymm
+template<typename T> inline void _neg (T* a, T* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]*-1; }
+inline void _sin (float* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::sin(a[i]); }
+inline void _exp2(float* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::exp2(a[i]); }
+inline void _log2(float* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::exp2(a[i]); }
 
-#elif defined (__SSE__) // TODO
-inline void _sqrt_f(float* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::sqrt(a[i]); }
-inline void _add_f(float* a, float* b, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]+b[i]; }
-inline void _sub_f(float* a, float* b, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]-b[i]; }
-inline void _div_f(float* a, float* b, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]/b[i]; }
-inline void _add_i(int* a, int* b, int* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]+b[i]; }
-inline void _sub_i(int* a, int* b, int* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]-b[i]; }
-inline void _div_i(int* a, int* b, int* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]/b[i]; }
+inline void _sin (int* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::sin(a[i]); }
+inline void _exp2(int* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::exp2(a[i]); }
+inline void _log2(int* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::log2(a[i]); }
+inline void _add(int* a, int* b, int* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]+b[i]; }
+inline void _sub(int* a, int* b, int* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]-b[i]; }
+inline void _div(int* a, int* b, int* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]/b[i]; }
+
+#elif defined (__SSE__) // TODO make xmm
+template<typename T> inline void _neg (T* a, T* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]*-1; }
+inline void _sin (float* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::sin(a[i]); }
+inline void _exp2(float* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::exp2(a[i]); }
+inline void _log2(float* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::log2(a[i]); }
+inline void _sqrt(float* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::sqrt(a[i]); }
+inline void _add(float* a, float* b, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]+b[i]; }
+inline void _sub(float* a, float* b, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]-b[i]; }
+inline void _div(float* a, float* b, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]/b[i]; }
+
+inline void _sin (int* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::sin(a[i]); }
+inline void _exp2(int* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::exp2(a[i]); }
+inline void _log2(int* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::log2(a[i]); }
+inline void _add(int* a, int* b, int* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]+b[i]; }
+inline void _sub(int* a, int* b, int* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]-b[i]; }
+inline void _div(int* a, int* b, int* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]/b[i]; }
 
 #else
-inline void _sqrt_f(float* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::sqrt(a[i]); }
-inline void _add_f(float* a, float* b, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]+b[i]; }
-inline void _sub_f(float* a, float* b, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]-b[i]; }
-inline void _div_f(float* a, float* b, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]/b[i]; }
-inline void _add_i(int* a, int* b, int* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]+b[i]; }
-inline void _sub_i(int* a, int* b, int* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]-b[i]; }
-inline void _div_i(int* a, int* b, int* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]/b[i]; }
+template<typename T> inline void _neg (T* a, T* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]*-1; }
+inline void _sin (float* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::sin(a[i]); }
+inline void _exp2(float* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::exp2(a[i]); }
+inline void _log2(float* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::log2(a[i]); }
+inline void _sqrt(float* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::sqrt(a[i]); }
+inline void _add(float* a, float* b, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]+b[i]; }
+inline void _sub(float* a, float* b, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]-b[i]; }
+inline void _div(float* a, float* b, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]/b[i]; }
+
+inline void _sin (int* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::sin(a[i]); }
+inline void _exp2(int* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::exp2(a[i]); }
+inline void _log2(int* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::log2(a[i]); }
+inline void _add(int* a, int* b, int* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]+b[i]; }
+inline void _sub(int* a, int* b, int* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]-b[i]; }
+inline void _div(int* a, int* b, int* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]/b[i]; }
 #endif
 
 } // intrin namespace
