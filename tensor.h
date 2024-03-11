@@ -94,7 +94,7 @@ typedef enum {
   NORMAL,
   CHI_SQUARED,
   KAIMING_UNIFORM,
-  kAIMING_NORMAL,
+  KAIMING_NORMAL,
 } randn_dist;
 
 struct View {
@@ -536,8 +536,7 @@ class Tensor {
           throw std::runtime_error("Tensors must have the same shape for add().");
     }
 
-    inline Tensor<T> execute_binary_op(Tensor<T>& lhs, T* rhs, void (*f)(float* lhs, float* rhs, float* r, size_t len), size_t len) 
-    {
+    inline Tensor<T> execute_binary_op(Tensor<T>& lhs, T* rhs, void (*f)(float* lhs, float* rhs, float* r, size_t len), size_t len) {
       T* nd = alloc<T>(len);
       f(lhs.mstorage, &rhs[0], &nd[0], len);
       uint32_t* shp = new uint32_t[lhs.mview->numdim];
@@ -852,25 +851,23 @@ inline void _div(float* a, float* b, float* c, size_t len) {
   size_t r=len%32;
   for(size_t i=0; i<r; i++) c[len-r+i]=a[len-r+i]/b[len-r+i];
 }
-/*
 inline void _sqrt(float* a, float* c, size_t len) {
   __m256 b1, b2, b3, b4, c1, c2, c3, c4;
   #pragma omp parallel for private(b1, b2, b3, b4, c1, c2, c3, c4) \
    shared(a, c, len) default(none) collapse(1) num_threads(omp_get_max_threads())
   for(size_t i=0; i<len; i+=32) { // 32 floats at a time
-    float* wa = &a[i];
-    b1 = _mm256_load_ps(&wa[0]);  b2 = _mm256_load_ps(&wa[8]);
-    b3 = _mm256_load_ps(&wa[16]); b4 = _mm256_load_ps(&wa[24]);
+    float* wc = &c[i];
+    b1 = _mm256_load_ps(&a[0]);  b2 = _mm256_load_ps(&a[8]);
+    b3 = _mm256_load_ps(&a[16]); b4 = _mm256_load_ps(&a[24]);
     c1 = _mm256_sqrt_ps(b1); c2 = _mm256_sqrt_ps(b2);
     c3 = _mm256_sqrt_ps(b3); c4 = _mm256_sqrt_ps(b4);
-    _mm256_store_ps(&wa[0],  c1); _mm256_store_ps(&wa[8],  c2);
-    _mm256_store_ps(&wa[16], c3); _mm256_store_ps(&wa[24], c4);
+    _mm256_store_ps(&wc[0],  c1); _mm256_store_ps(&wc[8],  c2);
+    _mm256_store_ps(&wc[16], c3); _mm256_store_ps(&wc[24], c4);
+    a+=32;
   }
   size_t r=len%32;
   for(size_t i=0; i<r; i++) c[len-r+i]=std::sqrt(a[len-r+i]);
 }
-*/
-inline void _sqrt (float* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::sqrt(a[i]); }
 // TODO: replace with ymm
 template<typename T> inline void _neg (T* a, T* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=a[i]*-1; }
 inline void _sin (float* a, float* c, size_t len) { for(size_t i=0; i<len; i++) c[i]=std::sin(a[i]); }
