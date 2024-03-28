@@ -1,0 +1,2 @@
+
+requires zlib1g-dev, link with -lz
