@@ -196,10 +196,11 @@ mnist_t load_mnist() {
   return ret;
 }
 
+/*
 typedef union {
   __m256 v;
   float f[8];
-} m256_t
+} m256_t;
 
 inline void _mm256_gemm_ps(const float* a, const float* b, float* c, int ids) {
   m256_t c0007, c1017, c2027, c3037, c4047, c5057, c6067, c7077, a_vreg, b_p0_vreg;
@@ -231,12 +232,60 @@ inline void _mm256_gemm_ps(const float* a, const float* b, float* c, int ids) {
   _mm256_store_ps( &c[4*ldc], c4047.v); _mm256_store_ps( &c[5*ldc], c5057.v);
   _mm256_store_ps( &c[6*ldc], c6067.v); _mm256_store_ps( &c[7*ldc], c7077.v);
 }
+*/
+
+// NOTE: handles 3 more values then needed
+inline void _5x5_conv_ps(const float* a, const float* b, float* c, int ldc) {
+  m256_t c0, c1, c2, c3, c4, b0, b1, b2, b3, b4, d0, d1, d2, d3, d4, av;
+  c0.v = _mm256_setzero_ps(); 
+  c1.v = _mm256_setzero_ps();
+  c2.v = _mm256_setzero_ps(); 
+  c3.v = _mm256_setzero_ps();
+  c4.v = _mm256_setzero_ps(); 
+  /*
+  d0.v = _mm256_load_ps((float*)&c[0]); 
+  d1.v = _mm256_load_ps((float*)&c[5]);
+  d2.v = _mm256_load_ps((float*)&c[10]); 
+  d3.v = _mm256_load_ps((float*)&c[15]);
+  d4.v = _mm256_load_ps((float*)&c[20]);
+  */
+
+  for(int i=0; i<5; i++) {
+    std::cout << i << std::endl;
+    av.v = _mm256_loadu_ps((float*)&a[8]);
+    std::cout << "\n av : ";
+    for(int i=0; i<8; i++) std::cout <<  av.f[0] << " ";
+    b0.v = _mm256_broadcast_ss((float*)&b[0]); 
+    b1.v = _mm256_broadcast_ss((float*)&b[1]);
+    b2.v = _mm256_broadcast_ss((float*)&b[2]); 
+    b3.v = _mm256_broadcast_ss((float*)&b[3]);
+    b4.v = _mm256_broadcast_ss((float*)&b[4]);
+    c0.v += _mm256_mul_ps(av.v, b0.v); 
+    c1.v += _mm256_mul_ps(av.v, b1.v);
+    c2.v += _mm256_mul_ps(av.v, b2.v); 
+    c3.v += _mm256_mul_ps(av.v, b3.v);
+    c4.v += _mm256_mul_ps(av.v, b4.v);
+
+    std::cout << "\n c0 : ";
+    for(int i=0; i<8; i++) std::cout <<  c0.f[0] << " ";
+    std::cout << "\n c1 : ";
+    for(int i=0; i<8; i++) std::cout <<  c1.f[0] << " ";
+    std::cout << "\n c2 : ";
+    for(int i=0; i<8; i++) std::cout <<  c2.f[0] << " ";
+    //a+=5; b+=5;
+  } 
+  _mm256_storeu_ps( &c[0],  c0.v); _mm256_storeu_ps( &c[5],  c1.v);
+  _mm256_storeu_ps( &c[10], c2.v); _mm256_storeu_ps( &c[15], c3.v);
+  _mm256_storeu_ps( &c[20], c4.v);
+}
 
 /*
  [ ] work with 4x8 __m256
  [ ] Pack across dimensions to fill num_threads * L1/core ~8000 f32/core
  [ ] Branch into different threads and multiply from pack
 */
+
+/*
 
 inline size_t get_idx(uint32_t* strides, int sl, uint32_t* idxs, int il) {
   assert(sl == il); // for now
@@ -278,7 +327,7 @@ void bmm256(const float* a, const float* b, float* c, int lds, int bs, int bn) {
     }
   }
 }
-
+*/
 
 int pool(float* src, float** to, size_t img_count=BATCH_SIZE, size_t img_size=28, uint32_t kernel_size=5, uint32_t stride=1, uint32_t dilation=1) {
   uint64_t panels = (img_size-dilation*(kernel_size-1)-1)/stride; 
@@ -309,11 +358,11 @@ int pool(float* src, float** to, size_t img_count=BATCH_SIZE, size_t img_size=28
 #define I 100
 
 int main() {
-  mnist_t ret;
+  //mnist_t ret;
 
-  mnist_t mnist = load_mnist();
-  float* pooling;
-  float* expand;
+  //mnist_t mnist = load_mnist();
+  //float* pooling;
+  //float* expand;
 
   /*
   long double sum1 = 0;
@@ -328,6 +377,7 @@ int main() {
   std::cout << 60000*24*24*5*5*sizeof(float) << " bytes" << std::endl;
   */
 
+/*
   pool(mnist.x_train, &pooling, 512); // {60000, 1, 24, 24, 5, 5}
 
   expand = static_cast<float*>( aligned_alloc(ALIGNMENT, 512*32*24*24*5*5*sizeof(float)) ); //  {60000, 1, 32, 24, 24, 5, 5}
@@ -351,6 +401,34 @@ int main() {
 
   std::cout << weight << std::endl;
   std::cout << x << std::endl;
+  */
+
+  float* a = (float*)aligned_alloc(32, 512*5*5*sizeof(float));
+  float* b = (float*)aligned_alloc(32, 32*sizeof(float));
+  float* c = (float*)aligned_alloc(32, 32*sizeof(float));
+
+  for(int i=0; i<512*5*5; i++) a[i] = (float)i;
+  for(int i=0; i<5*5; i++) b[i] = 0.5;
+
+  _5x5_conv_ps(&a[0], &b[0], &c[0], 0);
+
+  std::cout << "\na : ";
+  for(int i=0; i<5*5; i++) {
+    if(i%5==0) std::cout << "\n";
+    std::cout << std::setw(3) << a[i] << ", ";
+  }
+  std::cout << "\n";
+
+  for(int i=0; i<5*5; i++) {
+    if(i%5==0) std::cout << "\n";
+    std::cout << std::setw(3) << b[i] << ", ";
+  }
+  std::cout << "\n";
+
+  for(int i=0; i<5*5; i++) {
+    if(i%5==0) std::cout << "\n";
+    std::cout << std::setw(3) << c[i] << ", ";
+  }
 
 /*
 
