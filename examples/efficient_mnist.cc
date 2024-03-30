@@ -234,50 +234,55 @@ inline void _mm256_gemm_ps(const float* a, const float* b, float* c, int ids) {
 }
 */
 
+inline void pack_pad(int c, float* a, float* to) {
+  for(int i=0; i<c; i++) {
+    const float* t = &a[0];
+    *(to+0) = *(a+0);
+    *(to+1) = *(a+1);
+    *(to+2) = *(a+2);
+    *(to+3) = *(a+3);
+    *(to+4) = *(a+4);
+    *(to+5) = 0.f;
+    *(to+6) = 0.f;
+    *(to+7) = 0.f;
+    to+=8; a+=8;
+  }
+}
+
 // NOTE: handles 3 more values then needed
 inline void _5x5_conv_ps(const float* a, const float* b, float* c, int ldc) {
-  m256_t c0, c1, c2, c3, c4, b0, b1, b2, b3, b4, d0, d1, d2, d3, d4, av;
+  m256_t c0, c1, c2, c3, b0, b1, b2, b3, av;
   c0.v = _mm256_setzero_ps(); 
   c1.v = _mm256_setzero_ps();
   c2.v = _mm256_setzero_ps(); 
   c3.v = _mm256_setzero_ps();
-  c4.v = _mm256_setzero_ps(); 
-  /*
-  d0.v = _mm256_load_ps((float*)&c[0]); 
-  d1.v = _mm256_load_ps((float*)&c[5]);
-  d2.v = _mm256_load_ps((float*)&c[10]); 
-  d3.v = _mm256_load_ps((float*)&c[15]);
-  d4.v = _mm256_load_ps((float*)&c[20]);
-  */
 
   for(int i=0; i<5; i++) {
     std::cout << i << std::endl;
-    av.v = _mm256_loadu_ps((float*)&a[8]);
+    av.v = _mm256_load_ps((float*)a);
+    b0.v = _mm256_broadcast_ss((float*)b); 
+    b1.v = _mm256_broadcast_ss((float*)b+1);
+    b2.v = _mm256_broadcast_ss((float*)b+2); 
+    b3.v = _mm256_broadcast_ss((float*)b+3);
+
     std::cout << "\n av : ";
-    for(int i=0; i<8; i++) std::cout <<  av.f[0] << " ";
-    b0.v = _mm256_broadcast_ss((float*)&b[0]); 
-    b1.v = _mm256_broadcast_ss((float*)&b[1]);
-    b2.v = _mm256_broadcast_ss((float*)&b[2]); 
-    b3.v = _mm256_broadcast_ss((float*)&b[3]);
-    b4.v = _mm256_broadcast_ss((float*)&b[4]);
+    for(int i=0; i<8; i++) std::cout <<  av.f[i] << " ";
+    std::cout << "\n b0 : ";
+    for(int i=0; i<8; i++) std::cout <<  b0.f[i] << " ";
     c0.v += _mm256_mul_ps(av.v, b0.v); 
     c1.v += _mm256_mul_ps(av.v, b1.v);
     c2.v += _mm256_mul_ps(av.v, b2.v); 
     c3.v += _mm256_mul_ps(av.v, b3.v);
-    c4.v += _mm256_mul_ps(av.v, b4.v);
 
     std::cout << "\n c0 : ";
-    for(int i=0; i<8; i++) std::cout <<  c0.f[0] << " ";
+    for(int i=0; i<8; i++) std::cout <<  c0.f[i] << " ";
     std::cout << "\n c1 : ";
-    for(int i=0; i<8; i++) std::cout <<  c1.f[0] << " ";
-    std::cout << "\n c2 : ";
-    for(int i=0; i<8; i++) std::cout <<  c2.f[0] << " ";
-    //a+=5; b+=5;
+    for(int i=0; i<8; i++) std::cout <<  c1.f[i] << " ";
+    a+=5; b+=5;
   } 
-  _mm256_storeu_ps( &c[0],  c0.v); _mm256_storeu_ps( &c[5],  c1.v);
-  _mm256_storeu_ps( &c[10], c2.v); _mm256_storeu_ps( &c[15], c3.v);
-  _mm256_storeu_ps( &c[20], c4.v);
-}
+  _mm256_store_ps( &c[8],  c0.v); _mm256_store_ps( &c[16],  c1.v);
+  _mm256_store_ps( &c[24], c2.v); _mm256_store_ps( &c[32], c3.v);
+*/
 
 /*
  [ ] work with 4x8 __m256
@@ -403,32 +408,31 @@ int main() {
   std::cout << x << std::endl;
   */
 
-  float* a = (float*)aligned_alloc(32, 512*5*5*sizeof(float));
-  float* b = (float*)aligned_alloc(32, 32*sizeof(float));
-  float* c = (float*)aligned_alloc(32, 32*sizeof(float));
-
+  float* a =  (float*)aligned_alloc(32, 512*5*5*sizeof(float));
+  float* pa = (float*)aligned_alloc(32, 512*5*5*sizeof(float));
   for(int i=0; i<512*5*5; i++) a[i] = (float)i;
-  for(int i=0; i<5*5; i++) b[i] = 0.5;
+  pack_pad((512*5*5)/8, &a[0], &pa[0]);
+
+  float* b = (float*)aligned_alloc(32, 512*5*5*sizeof(float));
+  for(int i=0; i<5*5; i++) b[i] = 0.5f; 
+
+  float* c = (float*)aligned_alloc(32, 512*5*5*sizeof(float));
 
   _5x5_conv_ps(&a[0], &b[0], &c[0], 0);
 
   std::cout << "\na : ";
-  for(int i=0; i<5*5; i++) {
-    if(i%5==0) std::cout << "\n";
-    std::cout << std::setw(3) << a[i] << ", ";
-  }
+  for(int i=0; i<5*5; i++) { if(i%5==0) std::cout << "\n"; std::cout << std::setw(3) << a[i] << ", "; }
   std::cout << "\n";
 
-  for(int i=0; i<5*5; i++) {
-    if(i%5==0) std::cout << "\n";
-    std::cout << std::setw(3) << b[i] << ", ";
-  }
+  for(int i=0; i<5*5; i++) { if(i%5==0) std::cout << "\n"; std::cout << std::setw(3) << b[i] << ", "; }
   std::cout << "\n";
 
-  for(int i=0; i<5*5; i++) {
-    if(i%5==0) std::cout << "\n";
-    std::cout << std::setw(3) << c[i] << ", ";
-  }
+  for(int i=0; i<5*5; i++) { if(i%5==0) std::cout << "\n"; std::cout << std::setw(3) << c[i] << ", "; }
+  std::cout << "\n";
+
+  free(a);
+  free(b);
+  free(c);
 
 /*
 
