@@ -245,44 +245,28 @@ inline void pack_pad(int c, float* a, float* to) {
     *(to+5) = 0.f;
     *(to+6) = 0.f;
     *(to+7) = 0.f;
-    to+=8; a+=8;
+    to+=8; a+=5;
   }
 }
 
-// NOTE: handles 3 more values then needed
-inline void _5x5_conv_ps(const float* a, const float* b, float* c, int ldc) {
-  m256_t c0, c1, c2, c3, b0, b1, b2, b3, av;
-  c0.v = _mm256_setzero_ps(); 
-  c1.v = _mm256_setzero_ps();
-  c2.v = _mm256_setzero_ps(); 
-  c3.v = _mm256_setzero_ps();
-
+inline void _5x5_conv_ps(const float* a, float* b, float* c, int ldc) {
+  m256_t c0, c1, c2, c3, c4, av;
+  c0.v = _mm256_setzero_ps(); c1.v = _mm256_setzero_ps();
+  c2.v = _mm256_setzero_ps(); c3.v = _mm256_setzero_ps();
+  c4.v = _mm256_setzero_ps();
   for(int i=0; i<5; i++) {
-    std::cout << i << std::endl;
     av.v = _mm256_load_ps((float*)a);
-    b0.v = _mm256_broadcast_ss((float*)b); 
-    b1.v = _mm256_broadcast_ss((float*)b+1);
-    b2.v = _mm256_broadcast_ss((float*)b+2); 
-    b3.v = _mm256_broadcast_ss((float*)b+3);
-
-    std::cout << "\n av : ";
-    for(int i=0; i<8; i++) std::cout <<  av.f[i] << " ";
-    std::cout << "\n b0 : ";
-    for(int i=0; i<8; i++) std::cout <<  b0.f[i] << " ";
-    c0.v += _mm256_mul_ps(av.v, b0.v); 
-    c1.v += _mm256_mul_ps(av.v, b1.v);
-    c2.v += _mm256_mul_ps(av.v, b2.v); 
-    c3.v += _mm256_mul_ps(av.v, b3.v);
-
-    std::cout << "\n c0 : ";
-    for(int i=0; i<8; i++) std::cout <<  c0.f[i] << " ";
-    std::cout << "\n c1 : ";
-    for(int i=0; i<8; i++) std::cout <<  c1.f[i] << " ";
-    a+=5; b+=5;
-  } 
-  _mm256_store_ps( &c[8],  c0.v); _mm256_store_ps( &c[16],  c1.v);
-  _mm256_store_ps( &c[24], c2.v); _mm256_store_ps( &c[32], c3.v);
-*/
+    c0.v = _mm256_fmadd_ps(av.v, _mm256_broadcast_ss((float*)b  ), c0.v); 
+    c1.v = _mm256_fmadd_ps(av.v, _mm256_broadcast_ss((float*)b+1), c1.v); 
+    c2.v = _mm256_fmadd_ps(av.v, _mm256_broadcast_ss((float*)b+2), c2.v); 
+    c3.v = _mm256_fmadd_ps(av.v, _mm256_broadcast_ss((float*)b+3), c3.v); 
+    c4.v = _mm256_fmadd_ps(av.v, _mm256_broadcast_ss((float*)b+4), c4.v); 
+    a+=8; b+=5;
+  }
+  _mm256_storeu_ps( &c[0],  c0.v); _mm256_storeu_ps( &c[5],  c1.v);
+  _mm256_storeu_ps( &c[10], c2.v); _mm256_storeu_ps( &c[15], c3.v);
+  _mm256_storeu_ps( &c[20], c3.v);
+}
 
 /*
  [ ] work with 4x8 __m256
@@ -360,7 +344,7 @@ int pool(float* src, float** to, size_t img_count=BATCH_SIZE, size_t img_size=28
 }
 
 
-#define I 100
+#define I 10000
 
 int main() {
   //mnist_t ret;
@@ -368,19 +352,6 @@ int main() {
   //mnist_t mnist = load_mnist();
   //float* pooling;
   //float* expand;
-
-  /*
-  long double sum1 = 0;
-  for(int i=0; i<I; i++) {
-    auto start = std::chrono::high_resolution_clock::now();
-    pool(mnist.x_train, &to, 512, 28, 5, 1, 1);
-    auto end = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> ms_double = end - start;
-    sum1 += ms_double.count();
-  }
-  std::cout << "pool :" << sum1/I << " ms "<< std::endl;
-  std::cout << 60000*24*24*5*5*sizeof(float) << " bytes" << std::endl;
-  */
 
 /*
   pool(mnist.x_train, &pooling, 512); // {60000, 1, 24, 24, 5, 5}
@@ -409,7 +380,7 @@ int main() {
   */
 
   float* a =  (float*)aligned_alloc(32, 512*5*5*sizeof(float));
-  float* pa = (float*)aligned_alloc(32, 512*5*5*sizeof(float));
+  float* pa = (float*)aligned_alloc(32, 512*8*5*sizeof(float));
   for(int i=0; i<512*5*5; i++) a[i] = (float)i;
   pack_pad((512*5*5)/8, &a[0], &pa[0]);
 
@@ -418,19 +389,44 @@ int main() {
 
   float* c = (float*)aligned_alloc(32, 512*5*5*sizeof(float));
 
-  _5x5_conv_ps(&a[0], &b[0], &c[0], 0);
+  long double sum1 = 0;
+  for(int i=0; i<I; i++) {
+    auto start = std::chrono::high_resolution_clock::now();
+    for(int j=0; j<(512*5*5)/8; j++) {
+      _5x5_conv_ps(&pa[0], &b[0], &c[0], 0);
+    }
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> ms_double = end - start;
+    sum1 += ms_double.count();
+  }
+  std::cout << "\n\nunaligned :" << sum1/I << " ms "<< std::endl;
 
-  std::cout << "\na : ";
-  for(int i=0; i<5*5; i++) { if(i%5==0) std::cout << "\n"; std::cout << std::setw(3) << a[i] << ", "; }
+  sum1 = 0;
+  for(int i=0; i<I; i++) {
+    auto start = std::chrono::high_resolution_clock::now();
+    for(int j=0; j<(512*5*5)/8; j++) {
+      _5x5_conv_ps_u(&a[0], &b[0], &c[0], 0);
+    }
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> ms_double = end - start;
+    sum1 += ms_double.count();
+  }
+  std::cout << "pad aligned :" << sum1/I << " ms \n\n"<< std::endl;
+
+  std::cout << "\npa : ";
+  for(int i=0; i<512*8*5; i++) { if(i%8==0) std::cout << "\n"; std::cout << std::setw(3) << pa[i] << ", "; }
   std::cout << "\n";
 
+/*
   for(int i=0; i<5*5; i++) { if(i%5==0) std::cout << "\n"; std::cout << std::setw(3) << b[i] << ", "; }
   std::cout << "\n";
 
   for(int i=0; i<5*5; i++) { if(i%5==0) std::cout << "\n"; std::cout << std::setw(3) << c[i] << ", "; }
   std::cout << "\n";
+  */
 
   free(a);
+  free(pa);
   free(b);
   free(c);
 
