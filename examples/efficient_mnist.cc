@@ -169,6 +169,33 @@ mnist_t load_mnist() {
 }
 
 
+/*
+int pool(float* src, float** to, size_t img_count=BATCH_SIZE, size_t img_size=28, uint32_t kernel_size=5, uint32_t stride=1, uint32_t dilation=1) {
+  uint64_t panels = (img_size-dilation*(kernel_size-1)-1)/stride; 
+  *to = static_cast<float*>( aligned_alloc(ALIGNMENT, panels*panels*kernel_size*kernel_size*img_count*sizeof(float)) );
+
+  for(size_t img=0; img<img_count; img++) {
+    float* ws = &src[img*28*28];
+    float* wt = &(*to)[img*panels*panels*kernel_size*kernel_size]; // std::pow is slow af
+    uint32_t v_str=0, h_str=0; // vertical and horizontal accumulated stride idx
+
+    #pragma omp parallel for private(ws, wt) shared(panels, img_count, img_size, kernel_size, stride, dilation) num_threads(omp_get_max_threads())
+    for(size_t i=0; i<panels*panels; i++) {
+      if(dilation==1) {
+        for(size_t j=0; j<kernel_size; j++) 
+          memcpy((void*)&wt[kernel_size*j], (void*)&ws[img_size*(v_str+j)+h_str], kernel_size*sizeof(float));
+      } else { } // implement dilation cpy 
+      if(i%panels==0 && i!=0) { 
+        v_str+=stride; 
+        h_str=0;
+      }
+      h_str+=stride;
+      wt+=kernel_size*kernel_size;
+    }
+  }
+}
+*/
+
 inline void _mm256_conv2d_ps(const float* a, const float* b, float* c, int lda) {
   m256_t c0;
   c0.v = _mm256_setzero_ps();
@@ -196,32 +223,16 @@ inline void conv2d(const float* a, const float* b, float* c, int lda) {
   }
 }
 
-/*
-int pool(float* src, float** to, size_t img_count=BATCH_SIZE, size_t img_size=28, uint32_t kernel_size=5, uint32_t stride=1, uint32_t dilation=1) {
-  uint64_t panels = (img_size-dilation*(kernel_size-1)-1)/stride; 
-  *to = static_cast<float*>( aligned_alloc(ALIGNMENT, panels*panels*kernel_size*kernel_size*img_count*sizeof(float)) );
+inline void layer_conv2d(const float* in, const float* ker, float* out, int lda=28, int batch=512, int channels=32) {
 
-  for(size_t img=0; img<img_count; img++) {
-    float* ws = &src[img*28*28];
-    float* wt = &(*to)[img*panels*panels*kernel_size*kernel_size]; // std::pow is slow af
-    uint32_t v_str=0, h_str=0; // vertical and horizontal accumulated stride idx
-
-    #pragma omp parallel for private(ws, wt) shared(panels, img_count, img_size, kernel_size, stride, dilation) num_threads(omp_get_max_threads())
-    for(size_t i=0; i<panels*panels; i++) {
-      if(dilation==1) {
-        for(size_t j=0; j<kernel_size; j++) 
-          memcpy((void*)&wt[kernel_size*j], (void*)&ws[img_size*(v_str+j)+h_str], kernel_size*sizeof(float));
-      } else { } // implement dilation cpy 
-      if(i%panels==0 && i!=0) { 
-        v_str+=stride; 
-        h_str=0;
-      }
-      h_str+=stride;
-      wt+=kernel_size*kernel_size;
+  #pragma omp parallel for ordered shared(in, ker, out) collapse(2) num_threads(12)
+  for(int i=0; i<batch; i++) {
+    for(int k=0; k<channels; k++) {
+      #pragma omp ordered
+      conv2d(&in[i*28*28], &ker[k*5*5], &out[i*24*24*channels + k*24*24], lda);
     }
   }
 }
-*/
 
 // randn
 void f32_uniform(float* to, uint32_t count, float up=1.f, float down=0.f, double seed=0.f, float e=0.f) {
@@ -256,18 +267,11 @@ int main() {
     f32_uniform(l5.weights, 64*5*5, kbound64, -kbound64);
   }
 
-  float* outs = (float*)aligned_alloc(32, 512*32*5*5*sizeof(float));
+  float* outs = (float*)aligned_alloc(32, 513*32*24*24*sizeof(float));
 
-  #pragma omp parallel for shared(mnist, outs) collapse(3) num_threads(12)
-  for(int i=0; i<512; i++) {
-    for(int k=0; k<32; k++) {
-      for(int j=0; j<24*24; j++) {
-        conv2d(&mnist.x_train[i*28*28], &l1.weights[k*5*5], &outs[i*24*24+(24*24*k)], mnist.sl);
-      }
-    }
-  }
+  layer_conv2d(mnist.x_train, l1.weights, outs, 28, 512, 32);
 
-  for(int i=0; i<24*24*3; i++) {
+  for(int i=0; i<24*24*32*2; i++) {
     if(i%24==0) std::cout << "\n";
     if(i%(24*24)==0) std::cout << "\n\n";
     std::cout << std::setw(10) << outs[i] << ", ";
@@ -305,10 +309,13 @@ int main() {
   */
 
 
-/*
-  free(a);
-  free(pa);
-  free(b);
-  free(c);
-  */
+  free(l1.weights);
+  free(l2.weights);
+  free(l4.weights);
+  free(l5.weights);
+  free(outs);
+  free(mnist.x_train);
+  free(mnist.y_train);
+  free(mnist.x_test);
+  free(mnist.y_test);
 }
