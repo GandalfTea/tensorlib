@@ -14,42 +14,6 @@ using namespace tensorlib;
 #define BATCH_SIZE 512
 #define ALIGNMENT 32
 
-/*
-class Linear {
-  Linear() { }
-  Tensor<float>& operator(Tensor<float>& x) { }
-}
-
-class Conv2d {
-  uint32_t* kernel_dims;
-  Tensor<float>* weight, bias;
-  uint32_t  kernel_dim, stride, padding, dilation, groups;
-
-  Conv2d(uint32_t in_channels, uint32_t out_channels, std::initializer_list<uint32_t> kernel, 
-         uint32_t stride=1, uint32_t dilation=1, uint32_t groups=1, bool bias=true) 
-    : kernel_dim(kernel.size()), stride(stride), padding(padding), dilation(dilation), groups(groups)
-  {
-    if(kernel.size() != 2) throw std::runtime_error("Invalid Conv2d kernel dimensions.");
-    size_t i=0, sum=1;
-    kernel_dims = new uint32_t[2];
-    for(uint32_t& x : kernel) { kernel_dims[i++] = x; sum*=x; }
-    float kbount = std::sqrt(3.f)*std::sqrt(2.f / (1.f + 5.f)) / std::sqrt(sum);
-    this->weight = new Tensor<float>({out_channels, (uint32_t)in_channels/groups, kernel_dims[0], kernel_dims[1]}).randn(-kbound, kbound, UNIFORM); // kaiming uniform
-    if(bias) {
-      float bound = std::sqrt(x);
-      this->bias = new Tensor<float>({out_channels}).randn(-bound, bound, UNIFORM);
-    }
-  }
-
-  Tensor<float> operator(Tensor<float> x) {
-    x.pool({5, 5}).reshape({512, 1, 1, 1, 24, 24, 5, 5}).expand({512, 1, 1, 32, 24, 24, 5, 5}).permute({0, 1, 3, 4, 5, 2, 6, 7});
-    auto ret = weight.reshape({1, 1, 32, 1, 1, 1, 5, 5}).dot(x).sum({-1, -2, -3}).reshape({512, 32, 24, 24});
-    if(bias) ret.add(bias.reshape({1, -1, 1, 1})); 
-    return ret;
-  }
-}
-*/
-
 typedef struct {
   float* x_train;
   float* y_train;
@@ -58,6 +22,14 @@ typedef struct {
   size_t ltrain, ltest; 
   size_t sl = 28; // rows and cols length
 } mnist_t;
+
+typedef struct {
+  float* weights;
+  float* grad;
+  uint32_t in_channels;
+  uint32_t out_channels;
+} Conv2d;
+
 
 // https://zlib.net/manual.html
 int gz_inflate(unsigned char** to, size_t* usize, FILE* src) {
@@ -102,7 +74,7 @@ int gz_inflate(unsigned char** to, size_t* usize, FILE* src) {
 
     assert(strm.avail_in==0);
   } while(flush != Z_FINISH);
-  std::cout << ret << std::endl;
+  //std::cout << ret << std::endl;
   assert(ret == Z_STREAM_END);
   ret = inflateEnd(&strm);
   *usize = ul;
@@ -196,128 +168,35 @@ mnist_t load_mnist() {
   return ret;
 }
 
-/*
-typedef union {
-  __m256 v;
-  float f[8];
-} m256_t;
 
-inline void _mm256_gemm_ps(const float* a, const float* b, float* c, int ids) {
-  m256_t c0007, c1017, c2027, c3037, c4047, c5057, c6067, c7077, a_vreg, b_p0_vreg;
-  c0007.v = _mm256_setzero_ps(); c1017.v = _mm256_setzero_ps();
-  c2027.v = _mm256_setzero_ps(); c3037.v = _mm256_setzero_ps();
-  c4047.v = _mm256_setzero_ps(); c5057.v = _mm256_setzero_ps();
-  c6067.v = _mm256_setzero_ps(); c7077.v = _mm256_setzero_ps();
-  for(int iiiii=0; iiiii<k; iiiii++) {
-    __builtin_prefetch(a+8); __builtin_prefetch(b+8);
-    a_vreg.v = _mm256_load_ps( (float*)a );
-    b_p0_vreg.v = _mm256_load_ps( (float*)b );
-    a += 8; b += 8;
-    c0007.v += a_vreg.v * b_p0_vreg.f[0]; c1017.v += a_vreg.v * b_p0_vreg.f[1];
-    c2027.v += a_vreg.v * b_p0_vreg.f[2]; c3037.v += a_vreg.v * b_p0_vreg.f[3];
-    c4047.v += a_vreg.v * b_p0_vreg.f[4]; c5057.v += a_vreg.v * b_p0_vreg.f[5];
-    c6067.v += a_vreg.v * b_p0_vreg.f[6]; c7077.v += a_vreg.v * b_p0_vreg.f[7];
+inline void _mm256_conv2d_ps(const float* a, const float* b, float* c, int lda) {
+  m256_t c0;
+  c0.v = _mm256_setzero_ps();
+  for(int i=0, j=0; i<25; i+=5, j+=lda) {
+    c0.v = _mm256_fmadd_ps(_mm256_load_ps((float*)(a+j+0)), _mm256_broadcast_ss((float*)b+i  ), c0.v); 
+    c0.v = _mm256_fmadd_ps(_mm256_load_ps((float*)(a+j+1)), _mm256_broadcast_ss((float*)b+i+1), c0.v); 
+    c0.v = _mm256_fmadd_ps(_mm256_load_ps((float*)(a+j+2)), _mm256_broadcast_ss((float*)b+i+2), c0.v); 
+    c0.v = _mm256_fmadd_ps(_mm256_load_ps((float*)(a+j+3)), _mm256_broadcast_ss((float*)b+i+3), c0.v); 
+    c0.v = _mm256_fmadd_ps(_mm256_load_ps((float*)(a+j+4)), _mm256_broadcast_ss((float*)b+i+4), c0.v); 
   }
-  __m256 w0, w1, w2, w3, w4, w5, w6, w7;
-  w0 = _mm256_load_ps((float*)&c[0*ldc]); w1 = _mm256_load_ps((float*)&c[1*ldc]);
-  w2 = _mm256_load_ps((float*)&c[2*ldc]); w3 = _mm256_load_ps((float*)&c[3*ldc]);
-  w4 = _mm256_load_ps((float*)&c[4*ldc]); w5 = _mm256_load_ps((float*)&c[5*ldc]);
-  w6 = _mm256_load_ps((float*)&c[6*ldc]); w7 = _mm256_load_ps((float*)&c[7*ldc]);
-  c0007.v = _mm256_add_ps(c0007.v, w0); c1017.v = _mm256_add_ps(c1017.v, w1);
-  c2027.v = _mm256_add_ps(c2027.v, w2); c3037.v = _mm256_add_ps(c3037.v, w3);
-  c4047.v = _mm256_add_ps(c4047.v, w4); c5057.v = _mm256_add_ps(c5057.v, w5);
-  c6067.v = _mm256_add_ps(c6067.v, w6); c7077.v = _mm256_add_ps(c7077.v, w7);
-  _mm256_store_ps( &c[0*ldc], c0007.v); _mm256_store_ps( &c[1*ldc], c1017.v);
-  _mm256_store_ps( &c[2*ldc], c2027.v); _mm256_store_ps( &c[3*ldc], c3037.v);
-  _mm256_store_ps( &c[4*ldc], c4047.v); _mm256_store_ps( &c[5*ldc], c5057.v);
-  _mm256_store_ps( &c[6*ldc], c6067.v); _mm256_store_ps( &c[7*ldc], c7077.v);
-}
-*/
-
-inline void pack_pad(int c, float* a, float* to) {
-  for(int i=0; i<c; i++) {
-    const float* t = &a[0];
-    *(to+0) = *(a+0);
-    *(to+1) = *(a+1);
-    *(to+2) = *(a+2);
-    *(to+3) = *(a+3);
-    *(to+4) = *(a+4);
-    *(to+5) = 0.f;
-    *(to+6) = 0.f;
-    *(to+7) = 0.f;
-    to+=8; a+=5;
-  }
+  _mm256_storeu_ps( &c[0],  c0.v);
+  /* std::cout << "\n\nc0:";
+  for(int i=0; i<8; i++) std::cout << std::setw(9) << c0.f[i] << ","; 
+  std::cout << "\n"; */
 }
 
-inline void _5x5_conv_ps(const float* a, float* b, float* c, int ldc) {
-  m256_t c0, c1, c2, c3, c4, av;
-  c0.v = _mm256_setzero_ps(); c1.v = _mm256_setzero_ps();
-  c2.v = _mm256_setzero_ps(); c3.v = _mm256_setzero_ps();
-  c4.v = _mm256_setzero_ps();
-  for(int i=0; i<5; i++) {
-    av.v = _mm256_load_ps((float*)a);
-    c0.v = _mm256_fmadd_ps(av.v, _mm256_broadcast_ss((float*)b  ), c0.v); 
-    c1.v = _mm256_fmadd_ps(av.v, _mm256_broadcast_ss((float*)b+1), c1.v); 
-    c2.v = _mm256_fmadd_ps(av.v, _mm256_broadcast_ss((float*)b+2), c2.v); 
-    c3.v = _mm256_fmadd_ps(av.v, _mm256_broadcast_ss((float*)b+3), c3.v); 
-    c4.v = _mm256_fmadd_ps(av.v, _mm256_broadcast_ss((float*)b+4), c4.v); 
-    a+=8; b+=5;
+// only 5x5
+inline void conv2d(const float* a, const float* b, float* c, int lda) {
+  for(int i=0; i<lda; i++) {
+    _mm256_conv2d_ps(&a[0], &b[0], &c[0], lda);
+    _mm256_conv2d_ps(&a[8], &b[0], &c[8], lda);
+    _mm256_conv2d_ps(&a[16], &b[0], &c[16], lda);
+    a+=lda;
+    c+=3*8;
   }
-  _mm256_storeu_ps( &c[0],  c0.v); _mm256_storeu_ps( &c[5],  c1.v);
-  _mm256_storeu_ps( &c[10], c2.v); _mm256_storeu_ps( &c[15], c3.v);
-  _mm256_storeu_ps( &c[20], c3.v);
 }
 
 /*
- [ ] work with 4x8 __m256
- [ ] Pack across dimensions to fill num_threads * L1/core ~8000 f32/core
- [ ] Branch into different threads and multiply from pack
-*/
-
-/*
-
-inline size_t get_idx(uint32_t* strides, int sl, uint32_t* idxs, int il) {
-  assert(sl == il); // for now
-  uint64_t ret;
-  for(size_t i=0; i<sl; i++) ret += strides[i]*idxs[i]; 
-  return ret;
-}
-
-void bmm256( const float* a, const float* b, float* c, int lds, int bs, int bn) {
-  for(int b=0; b<bn; b+=bs) {
-    m256_t c04, c14, c24, c34, av, bv; 
-  }
-
-}
-
-template<int kb=128, int ib=128, int th=1>
-void bmm256(const float* a, const float* b, float* c, int lds, int bs, int bn) {
-  for(int b=0; b<bn; b++) {
-    int bstr=bs*b;
-    a+=bstr; b+=bstr; c+=bstr;
-
-    //#pragma omp parallel for shared(a, b, c, m, n, k) default(none) collapse(1) num_threads(th)
-    for(int i=0; i<k; i+=kb) {
-      int ib = std::min(k-i, kb);
-      float* pb = new alignas(32) float[ib*n];
-      for(int ii=0; ii<m; ii+=mb) {
-        int iib = std::min(m-ii, mb);
-        float* pa = new alignas(32) float[ib*iib];
-        float* wa = &a[i*k+ii];
-        float* wb = &b[i];
-        for(int iii=0; iii<n; iii+=8) {
-          if(ii==0) pack_b(ib, &wb[iii*n], n, &pb[iii*ib]);
-          for(int iiii=0; iiii<iib; iii+=8) {
-            if(iii==0) pack_a(ib, &wa[iiii], k ,&pa[iiii*ib]);
-            _8x8_m256_gemm(iib, &pa[iiii*ib], &pb[iii*ib], &c[ii+iii*n+iiii], n);
-          }
-        }
-      }
-    }
-  }
-}
-*/
-
 int pool(float* src, float** to, size_t img_count=BATCH_SIZE, size_t img_size=28, uint32_t kernel_size=5, uint32_t stride=1, uint32_t dilation=1) {
   uint64_t panels = (img_size-dilation*(kernel_size-1)-1)/stride; 
   *to = static_cast<float*>( aligned_alloc(ALIGNMENT, panels*panels*kernel_size*kernel_size*img_count*sizeof(float)) );
@@ -342,53 +221,60 @@ int pool(float* src, float** to, size_t img_count=BATCH_SIZE, size_t img_size=28
     }
   }
 }
+*/
+
+// randn
+void f32_uniform(float* to, uint32_t count, float up=1.f, float down=0.f, double seed=0.f, float e=0.f) {
+  std::mt19937 rng(std::random_device{}()); 
+  if(!eql_f32(seed, 0.f)) rng.seed(seed); 
+  std::uniform_real_distribution<float> dist(down, up); 
+  if(!eql_f32(e, 0.f)) for(size_t i=0; i<count; i++) do to[i] = dist(rng); while (to[i] <= e); 
+  else for(size_t i=0; i<count; i++) to[i] = dist(rng); 
+}
 
 
 #define I 10000
 
 int main() {
-  //mnist_t ret;
 
-  //mnist_t mnist = load_mnist();
-  //float* pooling;
-  //float* expand;
+  mnist_t mnist = load_mnist();
 
-/*
-  pool(mnist.x_train, &pooling, 512); // {60000, 1, 24, 24, 5, 5}
+  Conv2d l1, l2, l4, l5;
+  l1.weights = (float*)aligned_alloc(32, 32*5*5*sizeof(float));
+  l2.weights = (float*)aligned_alloc(32, 32*5*5*sizeof(float));
+  l4.weights = (float*)aligned_alloc(32, 64*5*5*sizeof(float));
+  l5.weights = (float*)aligned_alloc(32, 64*5*5*sizeof(float));
 
-  expand = static_cast<float*>( aligned_alloc(ALIGNMENT, 512*32*24*24*5*5*sizeof(float)) ); //  {60000, 1, 32, 24, 24, 5, 5}
-  for(size_t i=0; i<512; i++) { 
-    for(size_t j=0; j<32; j++) {
-      memcpy(&expand[i*24*24*5*5*j], &pooling[i*24*24*5*5], 24*24*5*5*sizeof(float)); 
+  #pragma omp parallel num_threads(12)
+  {
+    // kaiming uniform -- https://arxiv.org/pdf/1502.01852.pdf
+    float kbound32 = std::sqrt(3.f)*std::sqrt(2.f / (1.f + 5.f)) / std::sqrt(32*5*5);
+    float kbound64 = std::sqrt(3.f)*std::sqrt(2.f / (1.f + 5.f)) / std::sqrt(64*5*5);
+    f32_uniform(l1.weights, 32*5*5, kbound32, -kbound32);
+    f32_uniform(l2.weights, 32*5*5, kbound32, -kbound32);
+    f32_uniform(l4.weights, 64*5*5, kbound64, -kbound64);
+    f32_uniform(l5.weights, 64*5*5, kbound64, -kbound64);
+  }
+
+  float* outs = (float*)aligned_alloc(32, 512*32*5*5*sizeof(float));
+
+  #pragma omp parallel for shared(mnist, outs) collapse(3) num_threads(12)
+  for(int i=0; i<512; i++) {
+    for(int k=0; k<32; k++) {
+      for(int j=0; j<24*24; j++) {
+        conv2d(&mnist.x_train[i*28*28], &l1.weights[k*5*5], &outs[i*24*24+(24*24*k)], mnist.sl);
+      }
     }
   }
-  //free(pooling);
 
-  auto x = Tensor(expand, 512*32*24*24*5*5, {512, 32, 24, 24, 1, 5, 5});
-  //x.permute({0, 2, 3, 4, 1, 5, 6});
-  float kbound = std::sqrt(3.f)*std::sqrt(2.f / (1.f + 5.f)) / std::sqrt(5*5);
-  //auto weight = Tensor<float>({1, 32, 1, 1, 1, 5, 5}).randn(-kbound, kbound, UNIFORM);
-  auto weight = Tensor<float>({32, 1, 5, 5}).randn(-kbound, kbound, UNIFORM);
-  weight.reshape({1, 32, 1, 1, 1, 5, 5});
-  // TODO expand fails
+  for(int i=0; i<24*24*3; i++) {
+    if(i%24==0) std::cout << "\n";
+    if(i%(24*24)==0) std::cout << "\n\n";
+    std::cout << std::setw(10) << outs[i] << ", ";
+  }
+  std::cout << "\n\n";
 
-  // bmm
-
-
-  std::cout << weight << std::endl;
-  std::cout << x << std::endl;
-  */
-
-  float* a =  (float*)aligned_alloc(32, 512*5*5*sizeof(float));
-  float* pa = (float*)aligned_alloc(32, 512*8*5*sizeof(float));
-  for(int i=0; i<512*5*5; i++) a[i] = (float)i;
-  pack_pad((512*5*5)/8, &a[0], &pa[0]);
-
-  float* b = (float*)aligned_alloc(32, 512*5*5*sizeof(float));
-  for(int i=0; i<5*5; i++) b[i] = 0.5f; 
-
-  float* c = (float*)aligned_alloc(32, 512*5*5*sizeof(float));
-
+/*
   long double sum1 = 0;
   for(int i=0; i<I; i++) {
     auto start = std::chrono::high_resolution_clock::now();
@@ -416,55 +302,13 @@ int main() {
   std::cout << "\npa : ";
   for(int i=0; i<512*8*5; i++) { if(i%8==0) std::cout << "\n"; std::cout << std::setw(3) << pa[i] << ", "; }
   std::cout << "\n";
-
-/*
-  for(int i=0; i<5*5; i++) { if(i%5==0) std::cout << "\n"; std::cout << std::setw(3) << b[i] << ", "; }
-  std::cout << "\n";
-
-  for(int i=0; i<5*5; i++) { if(i%5==0) std::cout << "\n"; std::cout << std::setw(3) << c[i] << ", "; }
-  std::cout << "\n";
   */
 
+
+/*
   free(a);
   free(pa);
   free(b);
   free(c);
-
-/*
-
-  for(size_t i=0; i<28*28; i++) {
-    if(i%28==0) std::cout << "\n";
-    if(i%(28*28)==0) std::cout << "\n\n";
-    std::cout << std::setw(3) << mnist.x_train[i] << ", ";
-  } 
-
-  std::cout << "\n\n";
-
-  for(size_t i=0; i<24*24*5*5; i+=5) {
-    if(i%(5*5)==0 && i!=0) { 
-      i+=25*3;
-      std::cout << "\n\n"; 
-    }
-    if(i%(24*24*5*5)==0) std::cout << "\nconvolutions:\n";
-    for(size_t j=0; j<5; j++) std::cout << std::setw(4) << to[j+i] << ", ";
-    std::cout <<  "  |  ";
-    for(size_t j=0; j<5; j++) std::cout << std::setw(4) << to[j+25+i] << ", ";
-    std::cout <<  "  |  ";
-    for(size_t j=0; j<5; j++) std::cout << std::setw(4) << to[j+25*2+i] << ", ";
-    std::cout <<  "  |  ";
-    for(size_t j=0; j<5; j++) std::cout << std::setw(4) << to[j+25*3+i] << ", ";
-    std::cout << "\n";
-  }
-  */
-  
-  /*
-  for(size_t i=0; i<mnist.ltrain; i++) {
-    if(i%28==0) std::cout << "\n";
-    if(i%(28*28)==0) std::cout << "\n\n";
-    std::cout << std::setw(3) << mnist.x_train[i] << ", ";
-  } 
-  auto x_train_t = Tensor<float>(mnist.x_train, mnist.ltrain*mnist.sl*mnist.sl, {mnist.ltrain, 1, 28, 28});
-  x_train_t.repreat({1, 1, 6, 6});
-  std::cout << x_train_t << std::endl;
   */
 }
