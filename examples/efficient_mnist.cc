@@ -30,6 +30,7 @@ typedef struct {
   uint32_t out_channels;
 } Conv2d;
 
+//bool constexpr lt_f32 (float a, float b)  { return (b - a) > ( (fabs(a) < fabs(b) ? fabs(b) : fabs(a)) * EPSILON); }
 
 // https://zlib.net/manual.html
 int gz_inflate(unsigned char** to, size_t* usize, FILE* src) {
@@ -223,17 +224,6 @@ inline void conv2d(const float* a, const float* b, float* c, int lda) {
   }
 }
 
-inline void layer_conv2d(const float* in, const float* ker, float* out, int lda=28, int batch=512, int channels=32) {
-
-  #pragma omp parallel for ordered shared(in, ker, out) collapse(2) num_threads(12)
-  for(int i=0; i<batch; i++) {
-    for(int k=0; k<channels; k++) {
-      #pragma omp ordered
-      conv2d(&in[i*28*28], &ker[k*5*5], &out[i*24*24*channels + k*24*24], lda);
-    }
-  }
-}
-
 // randn
 void f32_uniform(float* to, uint32_t count, float up=1.f, float down=0.f, double seed=0.f, float e=0.f) {
   std::mt19937 rng(std::random_device{}()); 
@@ -243,6 +233,57 @@ void f32_uniform(float* to, uint32_t count, float up=1.f, float down=0.f, double
   else for(size_t i=0; i<count; i++) to[i] = dist(rng); 
 }
 
+inline Conv2d allocate_conv2d_layer(uint32_t ks, uint32_t in_channels, uint32_t out_channels, uint32_t count) {
+  Conv2d l;
+  l.weights = (float*)aligned_alloc(32, out_channels*ks*ks*count*sizeof(float));
+  l.grad = (float*)aligned_alloc(32, out_channels*ks*ks*count*sizeof(float));
+  l.in_channels = in_channels;
+  l.out_channels = out_channels;
+  return l;
+}
+
+// lda is row length of image, lo is row length of output
+inline void batch_conv2d(const float* in, const float* ker, float* out, int lda=28, int lo=24, int batch=512, int channels=32) {
+  #pragma omp parallel for ordered shared(in, ker, out) collapse(2) num_threads(12)
+  for(int i=0; i<batch; i++) {
+    for(int k=0; k<channels; k++) {
+      #pragma omp ordered
+      conv2d(&in[i*lda*lda], &ker[k*5*5], &out[i*24*24*channels + k*24*24], lda);
+    }
+  }
+}
+
+// TODO: check for duplicates
+void randn_batch(const float* src, float* to, uint32_t len, uint32_t count) {
+  std::mt19937 rng(std::random_device{}()); 
+  std::uniform_real_distribution<float> dist(0, len); // generate (count) randn int betweeen [0, len)
+  for(int i=0; i<count; i++) {
+    uint32_t ridx = (uint32_t)dist(rng);
+    memcpy(&to[i*28*28], &src[ridx*28*28], 28*28*sizeof(float));
+  }
+}
+
+inline float relu(float* in) { return lt_f32(0.f, *in) ? *in : 0.f; }
+void apply_relu(float* from, uint32_t count) { 
+  #pragma omp parallel for num_threads(12)
+  for(int i=0; i<count; i++) from[i] = relu(&from[i]); 
+}
+
+typedef struct {
+  bool affine;
+  float beta;
+  float gamma;
+  float mean;
+  float var;
+} norm_state;
+
+// https://arxiv.org/pdf/1502.03167
+void inline batch_norm_2d(norm_state* state, float* in, float* out, bool training=false) {
+  // calculate mean and standard deviation of (in)
+  // normalize
+  // if affine, update state
+}
+
 
 #define I 10000
 
@@ -250,11 +291,13 @@ int main() {
 
   mnist_t mnist = load_mnist();
 
-  Conv2d l1, l2, l4, l5;
-  l1.weights = (float*)aligned_alloc(32, 32*5*5*sizeof(float));
-  l2.weights = (float*)aligned_alloc(32, 32*5*5*sizeof(float));
-  l4.weights = (float*)aligned_alloc(32, 64*5*5*sizeof(float));
-  l5.weights = (float*)aligned_alloc(32, 64*5*5*sizeof(float));
+  float* batch = (float*)aligned_alloc(32, 513*28*28*sizeof(float)); 
+  randn_batch(mnist.x_train, batch, mnist.ltrain, 512);
+
+  Conv2d l1 = allocate_conv2d_layer(5, 1,  32, 512);
+  Conv2d l2 = allocate_conv2d_layer(5, 32, 32, 512);
+  Conv2d l4 = allocate_conv2d_layer(3, 32, 64, 512);
+  Conv2d l5 = allocate_conv2d_layer(3, 64, 64, 512);
 
   #pragma omp parallel num_threads(12)
   {
@@ -267,16 +310,40 @@ int main() {
     f32_uniform(l5.weights, 64*5*5, kbound64, -kbound64);
   }
 
+  //uint64_t panels = (img_size-dilation*(kernel_size-1)-1)/stride; 
+
   float* outs = (float*)aligned_alloc(32, 513*32*24*24*sizeof(float));
+  float* outs2 = (float*)aligned_alloc(32, 513*32*22*22*sizeof(float));
+  float* outs3 = (float*)aligned_alloc(32, 513*32*20*20*sizeof(float));
 
-  layer_conv2d(mnist.x_train, l1.weights, outs, 28, 512, 32);
+  batch_conv2d(batch, l1.weights, outs,  28, 512, 32);
+  apply_relu(outs, 512*32*24*24);
+  batch_conv2d(outs,  l2.weights, outs2, 24, 512, 32);
+  apply_relu(outs2, 512*32*22*22);
+  //batch_conv2d(outs2, l4.weights, outs3, 22, 512, 64);
 
-  for(int i=0; i<24*24*32*2; i++) {
-    if(i%24==0) std::cout << "\n";
-    if(i%(24*24)==0) std::cout << "\n\n";
-    std::cout << std::setw(10) << outs[i] << ", ";
+  /*
+  for(int i=0; i<28*28; i++) {
+    if(i%28==0) std::cout << "\n";
+    std::cout << std::setw(11) << batch[i] << ", ";
   }
   std::cout << "\n\n";
+  for(int i=0; i<24*24; i++) {
+    if(i%24==0) std::cout << "\n";
+    std::cout << std::setw(11) << outs[i] << ", ";
+  }
+  std::cout << "\n\n";
+  for(int i=0; i<22*22; i++) {
+    if(i%22==0) std::cout << "\n";
+    std::cout << std::setw(11) << outs2[i] << ", ";
+  }
+  std::cout << "\n\n";
+  for(int i=0; i<20*20; i++) {
+    if(i%20==0) std::cout << "\n";
+    std::cout << std::setw(11) << outs3[i] << ", ";
+  }
+  std::cout << "\n\n";
+  */
 
 /*
   long double sum1 = 0;
@@ -313,6 +380,10 @@ int main() {
   free(l2.weights);
   free(l4.weights);
   free(l5.weights);
+  free(l1.grad);
+  free(l2.grad);
+  free(l4.grad);
+  free(l5.grad);
   free(outs);
   free(mnist.x_train);
   free(mnist.y_train);
