@@ -264,24 +264,90 @@ void randn_batch(const float* src, float* to, uint32_t len, uint32_t count) {
 }
 
 inline float relu(float* in) { return lt_f32(0.f, *in) ? *in : 0.f; }
+
 void apply_relu(float* from, uint32_t count) { 
   #pragma omp parallel for num_threads(12)
   for(int i=0; i<count; i++) from[i] = relu(&from[i]); 
 }
 
 typedef struct {
+  uint32_t size;
+  uint32_t num_batches_tracked=0;
   bool affine;
-  float beta;
-  float gamma;
-  float mean;
-  float var;
-} norm_state;
+  float* weight;
+  float* bias;
+  float* mean;
+  float* var;
+  float eps;
+  float momentum;
+} bnorm2d_state;
+
+bnorm2d_state init_batchnorm2d(uint32_t size, bool affine=true) {
+  bnorm2d_state r;
+  r.size = size;
+  r.affine = affine;
+  r.eps = 1e-5;
+  r.momentum = 0.1f;
+  if(affine) {
+    r.weight = (float*)aligned_alloc(32, size*sizeof(float));
+    r.bias = (float*)aligned_alloc(32, size*sizeof(float));
+    f32_uniform(r.weight, 32);
+    f32_uniform(r.bias, 32);
+  }
+  return r;
+}
+
+/* NOTE: normalisation is done over the channel dimension because each channel represents
+         one convolution kernel. This aids in feature extraction.
+
+         https://stackoverflow.com/questions/45799926/why-batch-normalization-over-channels-only-in-cnn 
+         related paper: https://arxiv.org/pdf/1803.08494                                                    */     
 
 // https://arxiv.org/pdf/1502.03167
-void inline batch_norm_2d(norm_state* state, float* in, float* out, bool training=false) {
-  // calculate mean and standard deviation of (in)
-  // normalize
-  // if affine, update state
+void inline run_batchnorm2d(bnorm2d_state* state, float* in, uint32_t count, bool training=false) {
+  float* vars = (float*)calloc(32, sizeof(float));
+  float* means = (float*)calloc(32, sizeof(float));
+  float* invstd = (float*)calloc(32, sizeof(float));
+
+  // batch mean 
+  // TODO: this looks like shit code
+  #pragma omp parallel for collapse(3) num_threads(12)
+  for(int b=0; b<512; b++) {
+    for(int c=0; c<32; c++) {
+      for(int i=0; i<22*22; i++) {
+        means[c] += in[b*22*22*32+c*22*22+i];
+      }
+    }
+  }
+  for(int i=0; i<32; i++) means[i] /= 22*22*512;
+
+  // batch variance
+  #pragma omp parallel for collapse(3) num_threads(12)
+  for(int b=0; b<512; b++) {
+    for(int c=0; c<32; c++) {
+      uint32_t widx = b*22*22*32+c*22*22;
+      for(int i=0; i<22*22; i++) {
+        vars[c] += std::pow(in[widx+i]-means[c], 2);
+      }
+    }
+  }
+
+  for(int i=0; i<32; i++) vars[i] /= 22*22*512; 
+  for(int i=0; i<32; i++) invstd[i] = 1 / std::sqrt(vars[i]+state->eps);
+
+  // normalise
+  #pragma omp parallel for collapse(3) num_threads(12)
+  for(int i=0; i<512; i++) {
+    for(int c=0; c<32; c++) {
+      float* wptr = &in[i*22*22*32+c*22*22];
+      for(int p=0; p<22*22; p++) {
+        wptr[p] = (wptr[p]+state->bias[c]-means[c])*(invstd[c]*state->weight[c]);
+        // pytorch first multiplies then adds bias-mean*invstd*weight;
+        // https://github.com/pytorch/pytorch/blob/420b37f3c67950ed93cd8aa7a12e673fcfc5567b/aten/src/ATen/native/Normalization.cpp#L96 
+      }
+    }
+  }
+  // TODO: update running mean and std
 }
 
 
@@ -289,19 +355,22 @@ void inline batch_norm_2d(norm_state* state, float* in, float* out, bool trainin
 
 int main() {
 
+  // load 512 batch
   mnist_t mnist = load_mnist();
-
   float* batch = (float*)aligned_alloc(32, 513*28*28*sizeof(float)); 
   randn_batch(mnist.x_train, batch, mnist.ltrain, 512);
 
+  // init layers
   Conv2d l1 = allocate_conv2d_layer(5, 1,  32, 512);
   Conv2d l2 = allocate_conv2d_layer(5, 32, 32, 512);
   Conv2d l4 = allocate_conv2d_layer(3, 32, 64, 512);
   Conv2d l5 = allocate_conv2d_layer(3, 64, 64, 512);
+  bnorm2d_state b1 = init_batchnorm2d(32);
+  bnorm2d_state b2 = init_batchnorm2d(64);
 
+  // kaiming uniform -- https://arxiv.org/pdf/1502.01852.pdf
   #pragma omp parallel num_threads(12)
   {
-    // kaiming uniform -- https://arxiv.org/pdf/1502.01852.pdf
     float kbound32 = std::sqrt(3.f)*std::sqrt(2.f / (1.f + 5.f)) / std::sqrt(32*5*5);
     float kbound64 = std::sqrt(3.f)*std::sqrt(2.f / (1.f + 5.f)) / std::sqrt(64*5*5);
     f32_uniform(l1.weights, 32*5*5, kbound32, -kbound32);
@@ -310,19 +379,19 @@ int main() {
     f32_uniform(l5.weights, 64*5*5, kbound64, -kbound64);
   }
 
-  //uint64_t panels = (img_size-dilation*(kernel_size-1)-1)/stride; 
-
+  // intermidiary activations
+  // compute resulting panels -- (img_size-dilation*(kernel_size-1)-1)/stride
   float* outs = (float*)aligned_alloc(32, 513*32*24*24*sizeof(float));
   float* outs2 = (float*)aligned_alloc(32, 513*32*22*22*sizeof(float));
-  float* outs3 = (float*)aligned_alloc(32, 513*32*20*20*sizeof(float));
+  float* outs3 = (float*)aligned_alloc(32, 513*32*22*22*sizeof(float));
 
   batch_conv2d(batch, l1.weights, outs,  28, 512, 32);
   apply_relu(outs, 512*32*24*24);
   batch_conv2d(outs,  l2.weights, outs2, 24, 512, 32);
   apply_relu(outs2, 512*32*22*22);
-  //batch_conv2d(outs2, l4.weights, outs3, 22, 512, 64);
 
-  /*
+
+
   for(int i=0; i<28*28; i++) {
     if(i%28==0) std::cout << "\n";
     std::cout << std::setw(11) << batch[i] << ", ";
@@ -332,17 +401,32 @@ int main() {
     if(i%24==0) std::cout << "\n";
     std::cout << std::setw(11) << outs[i] << ", ";
   }
+
+  std::cout << "\n\n";
+  for(int i=0; i<22*22; i++) {
+    if(i%22==0) std::cout << "\n";
+    std::cout << std::setw(11) << outs2[i] << ", ";
+  }
+
+  run_batchnorm2d(&b1, outs2, 512*32*22*22, true);
+
   std::cout << "\n\n";
   for(int i=0; i<22*22; i++) {
     if(i%22==0) std::cout << "\n";
     std::cout << std::setw(11) << outs2[i] << ", ";
   }
   std::cout << "\n\n";
+  for(int i=22*22; i<2*22*22; i++) {
+    if(i%22==0) std::cout << "\n";
+    std::cout << std::setw(11) << outs2[i] << ", ";
+  }
+  std::cout << "\n\n";
+  /*
+  std::cout << "\n\n";
   for(int i=0; i<20*20; i++) {
     if(i%20==0) std::cout << "\n";
     std::cout << std::setw(11) << outs3[i] << ", ";
   }
-  std::cout << "\n\n";
   */
 
 /*
