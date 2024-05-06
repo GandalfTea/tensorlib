@@ -200,6 +200,7 @@ int pool(float* src, float** to, size_t img_count=BATCH_SIZE, size_t img_size=28
 inline void _mm256_conv2d_ps(const float* a, const float* b, float* c, int lda) {
   m256_t c0;
   c0.v = _mm256_setzero_ps();
+  #pragma omp parallel for num_threads(12)
   for(int i=0, j=0; i<25; i+=5, j+=lda) {
     c0.v = _mm256_fmadd_ps(_mm256_load_ps((float*)(a+j+0)), _mm256_broadcast_ss((float*)b+i  ), c0.v); 
     c0.v = _mm256_fmadd_ps(_mm256_load_ps((float*)(a+j+1)), _mm256_broadcast_ss((float*)b+i+1), c0.v); 
@@ -350,6 +351,25 @@ void inline run_batchnorm2d(bnorm2d_state* state, float* in, uint32_t count, boo
   // TODO: update running mean and std
 }
 
+inline void _max2d(const float* in, uint8_t ks, float* out, int lda) {
+  uint16_t i=0, j=0;
+  float max = 0.f;
+  for(int i=0, j=0; i<ks*ks; i++) {
+    if(i%ks==0) j=i/ks*lda;
+    if(lt_f32(max, in[j++])) max=in[j-1];
+  }
+  *out = max;
+}
+
+inline void max_pool2d(float* in, float* out, uint32_t len, uint32_t img_size, uint8_t kernel_size=2, uint8_t stride=0, uint8_t dilation=1) {
+  for(int i=0; i<img_size-1; i++) {
+    for(int j=0; j<img_size-1; j++) {
+      _max2d(&in[i*img_size+j], kernel_size, &out[i*img_size+j], img_size); 
+    }
+  }
+}
+
+
 
 #define I 10000
 
@@ -388,19 +408,14 @@ int main() {
   batch_conv2d(batch, l1.weights, outs,  28, 512, 32);
   apply_relu(outs, 512*32*24*24);
   batch_conv2d(outs,  l2.weights, outs2, 24, 512, 32);
-  apply_relu(outs2, 512*32*22*22);
 
-
-
-  for(int i=0; i<28*28; i++) {
-    if(i%28==0) std::cout << "\n";
-    std::cout << std::setw(11) << batch[i] << ", ";
-  }
   std::cout << "\n\n";
-  for(int i=0; i<24*24; i++) {
-    if(i%24==0) std::cout << "\n";
-    std::cout << std::setw(11) << outs[i] << ", ";
+  for(int i=0; i<22*22; i++) {
+    if(i%22==0) std::cout << "\n";
+    std::cout << std::setw(11) << outs2[i] << ", ";
   }
+
+  apply_relu(outs2, 512*32*22*22);
 
   std::cout << "\n\n";
   for(int i=0; i<22*22; i++) {
@@ -416,11 +431,6 @@ int main() {
     std::cout << std::setw(11) << outs2[i] << ", ";
   }
   std::cout << "\n\n";
-  for(int i=22*22; i<2*22*22; i++) {
-    if(i%22==0) std::cout << "\n";
-    std::cout << std::setw(11) << outs2[i] << ", ";
-  }
-  std::cout << "\n\n";
   /*
   std::cout << "\n\n";
   for(int i=0; i<20*20; i++) {
@@ -428,6 +438,9 @@ int main() {
     std::cout << std::setw(11) << outs3[i] << ", ";
   }
   */
+
+  float out;
+  _max2d(outs2, 2, &out, 22);
 
 /*
   long double sum1 = 0;
