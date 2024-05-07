@@ -100,6 +100,7 @@ mnist_t load_mnist() {
   unsigned char* x_train_b = static_cast<unsigned char*>(malloc(x_train_s*sizeof(unsigned char)));
   gz_inflate(&x_train_b, &x_train_s, x_train_fd); // updates x_train_s to inflated size
   ret.x_train = static_cast<float*>(malloc(sizeof(float)*(x_train_s-16))); // remove header
+  //ret.x_train = static_cast<float*>(aligned_alloc(32, sizeof(float)*(x_train_s-16))); // remove header
   assert(x_train_b[0] == 0x00);
   assert(x_train_b[1] == 0x00);
   assert(x_train_b[2] == 0x08); // unsigned byte dtype
@@ -200,22 +201,26 @@ int pool(float* src, float** to, size_t img_count=BATCH_SIZE, size_t img_size=28
 inline void _mm256_conv2d_ps(const float* a, const float* b, float* c, int lda) {
   m256_t c0;
   c0.v = _mm256_setzero_ps();
-  #pragma omp parallel for num_threads(12)
-  for(int i=0, j=0; i<25; i+=5, j+=lda) {
-    c0.v = _mm256_fmadd_ps(_mm256_load_ps((float*)(a+j+0)), _mm256_broadcast_ss((float*)b+i  ), c0.v); 
-    c0.v = _mm256_fmadd_ps(_mm256_load_ps((float*)(a+j+1)), _mm256_broadcast_ss((float*)b+i+1), c0.v); 
-    c0.v = _mm256_fmadd_ps(_mm256_load_ps((float*)(a+j+2)), _mm256_broadcast_ss((float*)b+i+2), c0.v); 
-    c0.v = _mm256_fmadd_ps(_mm256_load_ps((float*)(a+j+3)), _mm256_broadcast_ss((float*)b+i+3), c0.v); 
-    c0.v = _mm256_fmadd_ps(_mm256_load_ps((float*)(a+j+4)), _mm256_broadcast_ss((float*)b+i+4), c0.v); 
+  int j=0;
+  #pragma omp parallel for num_threads(omp_get_max_threads())
+  for(int i=0; i<25; i+=5) {
+    c0.v = _mm256_fmadd_ps(_mm256_loadu_ps((float*)(a+j+0)), _mm256_broadcast_ss((float*)b+i  ), c0.v); 
+    c0.v = _mm256_fmadd_ps(_mm256_loadu_ps((float*)(a+j+1)), _mm256_broadcast_ss((float*)b+i+1), c0.v); 
+    c0.v = _mm256_fmadd_ps(_mm256_loadu_ps((float*)(a+j+2)), _mm256_broadcast_ss((float*)b+i+2), c0.v); 
+    c0.v = _mm256_fmadd_ps(_mm256_loadu_ps((float*)(a+j+3)), _mm256_broadcast_ss((float*)b+i+3), c0.v); 
+    c0.v = _mm256_fmadd_ps(_mm256_loadu_ps((float*)(a+j+4)), _mm256_broadcast_ss((float*)b+i+4), c0.v); 
+    j+=lda;
   }
   _mm256_storeu_ps( &c[0],  c0.v);
-  /* std::cout << "\n\nc0:";
-  for(int i=0; i<8; i++) std::cout << std::setw(9) << c0.f[i] << ","; 
-  std::cout << "\n"; */
+  /*
+  printf("\nr %p : w %p : ", (void*)a, (void*)c);
+  for(int i=0; i<8; i++) std::cout << std::setw(11) << c0.f[i] << ","; 
+  */
 }
 
 // only 5x5
-inline void conv2d(const float* a, const float* b, float* c, int lda) {
+inline void conv2d(float* a, float* b, float* c, int lda) {
+  #pragma omp parallel for num_threads(omp_get_max_threads())
   for(int i=0; i<lda; i++) {
     _mm256_conv2d_ps(&a[0], &b[0], &c[0], lda);
     _mm256_conv2d_ps(&a[8], &b[0], &c[8], lda);
@@ -244,12 +249,12 @@ inline Conv2d allocate_conv2d_layer(uint32_t ks, uint32_t in_channels, uint32_t 
 }
 
 // lda is row length of image, lo is row length of output
-inline void batch_conv2d(const float* in, const float* ker, float* out, int lda=28, int lo=24, int batch=512, int channels=32) {
-  #pragma omp parallel for ordered shared(in, ker, out) collapse(2) num_threads(12)
+inline void batch_conv2d(float* in, float* ker, float* out, int lda=28, int lo=24, int batch=512, int channels=32) {
+  #pragma omp parallel for ordered shared(in, ker, out) collapse(2) num_threads(omp_get_max_threads())
   for(int i=0; i<batch; i++) {
     for(int k=0; k<channels; k++) {
       #pragma omp ordered
-      conv2d(&in[i*lda*lda], &ker[k*5*5], &out[i*24*24*channels + k*24*24], lda);
+      conv2d(&in[i*lda*lda], &ker[k*5*5], &out[i*lo*lo*channels + k*lo*lo], lda);
     }
   }
 }
@@ -267,7 +272,7 @@ void randn_batch(const float* src, float* to, uint32_t len, uint32_t count) {
 inline float relu(float* in) { return lt_f32(0.f, *in) ? *in : 0.f; }
 
 void apply_relu(float* from, uint32_t count) { 
-  #pragma omp parallel for num_threads(12)
+  #pragma omp parallel for num_threads(omp_get_max_threads())
   for(int i=0; i<count; i++) from[i] = relu(&from[i]); 
 }
 
@@ -312,7 +317,7 @@ void inline run_batchnorm2d(bnorm2d_state* state, float* in, uint32_t count, boo
 
   // batch mean 
   // TODO: this looks like shit code
-  #pragma omp parallel for collapse(3) num_threads(12)
+  #pragma omp parallel for collapse(3) num_threads(omp_get_max_threads())
   for(int b=0; b<512; b++) {
     for(int c=0; c<32; c++) {
       for(int i=0; i<22*22; i++) {
@@ -323,7 +328,7 @@ void inline run_batchnorm2d(bnorm2d_state* state, float* in, uint32_t count, boo
   for(int i=0; i<32; i++) means[i] /= 22*22*512;
 
   // batch variance
-  #pragma omp parallel for collapse(3) num_threads(12)
+  #pragma omp parallel for collapse(2) num_threads(omp_get_max_threads())
   for(int b=0; b<512; b++) {
     for(int c=0; c<32; c++) {
       uint32_t widx = b*22*22*32+c*22*22;
@@ -337,7 +342,7 @@ void inline run_batchnorm2d(bnorm2d_state* state, float* in, uint32_t count, boo
   for(int i=0; i<32; i++) invstd[i] = 1 / std::sqrt(vars[i]+state->eps);
 
   // normalise
-  #pragma omp parallel for collapse(3) num_threads(12)
+  #pragma omp parallel for collapse(2) num_threads(omp_get_max_threads())
   for(int i=0; i<512; i++) {
     for(int c=0; c<32; c++) {
       float* wptr = &in[i*22*22*32+c*22*22];
@@ -369,11 +374,16 @@ inline void max_pool2d(float* in, float* out, uint32_t len, uint32_t img_size, u
   }
 }
 
+constexpr inline uint32_t size_after_conv(uint32_t img_size, uint32_t kernel_size, uint32_t dilation=1, uint32_t stride=1) {
+  //return (img_size - dilation*(kernel_size-1)-1)/stride + 1;
+  return (img_size - kernel_size) / stride + 1;
+}
 
 
 #define I 10000
 
 int main() {
+
 
   // load 512 batch
   mnist_t mnist = load_mnist();
@@ -388,8 +398,12 @@ int main() {
   bnorm2d_state b1 = init_batchnorm2d(32);
   bnorm2d_state b2 = init_batchnorm2d(64);
 
+  uint32_t ls1 = size_after_conv(28, 5);
+  uint32_t ls2 = size_after_conv(ls1, 5);
+  uint32_t ls3 = size_after_conv(ls2, 5);
+
   // kaiming uniform -- https://arxiv.org/pdf/1502.01852.pdf
-  #pragma omp parallel num_threads(12)
+  #pragma omp parallel num_threads(omp_get_max_threads())
   {
     float kbound32 = std::sqrt(3.f)*std::sqrt(2.f / (1.f + 5.f)) / std::sqrt(32*5*5);
     float kbound64 = std::sqrt(3.f)*std::sqrt(2.f / (1.f + 5.f)) / std::sqrt(64*5*5);
@@ -401,34 +415,35 @@ int main() {
 
   // intermidiary activations
   // compute resulting panels -- (img_size-dilation*(kernel_size-1)-1)/stride
-  float* outs = (float*)aligned_alloc(32, 513*32*24*24*sizeof(float));
-  float* outs2 = (float*)aligned_alloc(32, 513*32*22*22*sizeof(float));
-  float* outs3 = (float*)aligned_alloc(32, 513*32*22*22*sizeof(float));
+  float* outs = (float*)aligned_alloc(32, 513*32*ls1*ls1*sizeof(float));
+  float* outs2 = (float*)aligned_alloc(32, 513*32*ls2*ls2*sizeof(float));
+  float* outs3 = (float*)aligned_alloc(32, 513*32*ls3*ls3*sizeof(float));
 
-  batch_conv2d(batch, l1.weights, outs,  28, 512, 32);
-  apply_relu(outs, 512*32*24*24);
-  batch_conv2d(outs,  l2.weights, outs2, 24, 512, 32);
+  batch_conv2d(batch, l1.weights, outs,  28, ls1, 512, 32);
+  //apply_relu(outs, 512*32*ls1*ls1);
+  batch_conv2d(outs,  l2.weights, outs2, ls1, ls2, 512, 32);
 
   std::cout << "\n\n";
-  for(int i=0; i<22*22; i++) {
-    if(i%22==0) std::cout << "\n";
-    std::cout << std::setw(11) << outs2[i] << ", ";
+  for(int i=0; i<28*28; i++) {
+    if(i%28==0) std::cout << "\n";
+    std::cout << std::setw(3) << batch[i] << ", ";
   }
 
-  apply_relu(outs2, 512*32*22*22);
+  //apply_relu(outs2, 512*32*ls2*ls2);
 
   std::cout << "\n\n";
-  for(int i=0; i<22*22; i++) {
-    if(i%22==0) std::cout << "\n";
-    std::cout << std::setw(11) << outs2[i] << ", ";
+  for(int i=0; i<1*ls1*ls1; i++) {
+    if(i%ls1==0) std::cout << "\n";
+    if(i%(ls1*ls1)==0) std::cout << "\n";
+    std::cout << std::setw(9) << outs[i] << ", ";
   }
 
-  run_batchnorm2d(&b1, outs2, 512*32*22*22, true);
+  //run_batchnorm2d(&b1, outs2, 512*32*22*22, true);
 
   std::cout << "\n\n";
-  for(int i=0; i<22*22; i++) {
-    if(i%22==0) std::cout << "\n";
-    std::cout << std::setw(11) << outs2[i] << ", ";
+  for(int i=0; i<ls2*ls2; i++) {
+    if(i%ls2==0) std::cout << "\n";
+    std::cout << std::setw(9) << outs2[i] << ", ";
   }
   std::cout << "\n\n";
   /*
