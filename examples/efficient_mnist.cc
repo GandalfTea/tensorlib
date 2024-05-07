@@ -198,65 +198,60 @@ int pool(float* src, float** to, size_t img_count=BATCH_SIZE, size_t img_size=28
 }
 */
 
+// conv2d kernel
+// ---------------------------------------------
+
+// computes 8 output values at once
 inline void _mm256_conv2d_ps(const float* a, const float* b, float* c, int lda) {
-  m256_t c0;
-  c0.v = _mm256_setzero_ps();
-  int j=0;
-  #pragma omp parallel for num_threads(omp_get_max_threads())
-  for(int i=0; i<25; i+=5) {
-    c0.v = _mm256_fmadd_ps(_mm256_loadu_ps((float*)(a+j+0)), _mm256_broadcast_ss((float*)b+i  ), c0.v); 
-    c0.v = _mm256_fmadd_ps(_mm256_loadu_ps((float*)(a+j+1)), _mm256_broadcast_ss((float*)b+i+1), c0.v); 
-    c0.v = _mm256_fmadd_ps(_mm256_loadu_ps((float*)(a+j+2)), _mm256_broadcast_ss((float*)b+i+2), c0.v); 
-    c0.v = _mm256_fmadd_ps(_mm256_loadu_ps((float*)(a+j+3)), _mm256_broadcast_ss((float*)b+i+3), c0.v); 
-    c0.v = _mm256_fmadd_ps(_mm256_loadu_ps((float*)(a+j+4)), _mm256_broadcast_ss((float*)b+i+4), c0.v); 
-    j+=lda;
+  int i, j=0;
+  __m256 c0 = _mm256_setzero_ps();
+  #pragma omp parallel for private(i, j) num_threads(omp_get_max_threads())
+  for(i=0; i<5; i++) {
+    c0 = _mm256_fmadd_ps(_mm256_loadu_ps((float*)(a+0)), _mm256_broadcast_ss((float*)b  ), c0); 
+    c0 = _mm256_fmadd_ps(_mm256_loadu_ps((float*)(a+1)), _mm256_broadcast_ss((float*)b+1), c0); 
+    c0 = _mm256_fmadd_ps(_mm256_loadu_ps((float*)(a+2)), _mm256_broadcast_ss((float*)b+2), c0); 
+    c0 = _mm256_fmadd_ps(_mm256_loadu_ps((float*)(a+3)), _mm256_broadcast_ss((float*)b+3), c0); 
+    c0 = _mm256_fmadd_ps(_mm256_loadu_ps((float*)(a+4)), _mm256_broadcast_ss((float*)b+4), c0); 
+    a+=lda;
+    b+=5;
   }
-  _mm256_storeu_ps( &c[0],  c0.v);
-  /*
-  printf("\nr %p : w %p : ", (void*)a, (void*)c);
-  for(int i=0; i<8; i++) std::cout << std::setw(11) << c0.f[i] << ","; 
-  */
+  _mm256_storeu_ps(c,  c0);
 }
 
-// only 5x5
-inline void conv2d(float* a, float* b, float* c, int lda) {
+// iterates conv2d kernel over height ldc, loading in as many 
+// ymm registers as necessary to fill all width ldc values.
+inline void conv2d(float* a, float* b, float* c, int lda, int ldc) {
+  uint32_t it = ceil((float)ldc/8);
   #pragma omp parallel for num_threads(omp_get_max_threads())
-  for(int i=0; i<lda; i++) {
-    _mm256_conv2d_ps(&a[0], &b[0], &c[0], lda);
-    _mm256_conv2d_ps(&a[8], &b[0], &c[8], lda);
-    _mm256_conv2d_ps(&a[16], &b[0], &c[16], lda);
+  for(int i=0; i<ldc; i++) {
+    #pragma unroll
+    for(int j=0; j<it; j++) {
+      _mm256_conv2d_ps(&a[j*8], b, &c[j*8], lda);
+    }
     a+=lda;
-    c+=3*8;
+    c+=ldc;
   }
 }
+
+inline void batch_conv2d(float* in, float* ker, float* out, int lda=28, int lo=24, int batch=512, int channels=32) {
+  #pragma omp parallel for ordered shared(in, ker, out) collapse(2) num_threads(omp_get_max_threads())
+  for(int i=0; i<batch; i++) {
+    for(int k=0; k<channels; k++) {
+      #pragma omp ordered
+      conv2d(&in[i*lda*lda], &ker[k*5*5], &out[i*lo*lo*channels + k*lo*lo], lda, lo);
+    }
+  }
+}
+
 
 // randn
+// ---------------------------------------------
 void f32_uniform(float* to, uint32_t count, float up=1.f, float down=0.f, double seed=0.f, float e=0.f) {
   std::mt19937 rng(std::random_device{}()); 
   if(!eql_f32(seed, 0.f)) rng.seed(seed); 
   std::uniform_real_distribution<float> dist(down, up); 
   if(!eql_f32(e, 0.f)) for(size_t i=0; i<count; i++) do to[i] = dist(rng); while (to[i] <= e); 
   else for(size_t i=0; i<count; i++) to[i] = dist(rng); 
-}
-
-inline Conv2d allocate_conv2d_layer(uint32_t ks, uint32_t in_channels, uint32_t out_channels, uint32_t count) {
-  Conv2d l;
-  l.weights = (float*)aligned_alloc(32, out_channels*ks*ks*count*sizeof(float));
-  l.grad = (float*)aligned_alloc(32, out_channels*ks*ks*count*sizeof(float));
-  l.in_channels = in_channels;
-  l.out_channels = out_channels;
-  return l;
-}
-
-// lda is row length of image, lo is row length of output
-inline void batch_conv2d(float* in, float* ker, float* out, int lda=28, int lo=24, int batch=512, int channels=32) {
-  #pragma omp parallel for ordered shared(in, ker, out) collapse(2) num_threads(omp_get_max_threads())
-  for(int i=0; i<batch; i++) {
-    for(int k=0; k<channels; k++) {
-      #pragma omp ordered
-      conv2d(&in[i*lda*lda], &ker[k*5*5], &out[i*lo*lo*channels + k*lo*lo], lda);
-    }
-  }
 }
 
 // TODO: check for duplicates
@@ -267,6 +262,18 @@ void randn_batch(const float* src, float* to, uint32_t len, uint32_t count) {
     uint32_t ridx = (uint32_t)dist(rng);
     memcpy(&to[i*28*28], &src[ridx*28*28], 28*28*sizeof(float));
   }
+}
+
+
+// nn
+// ---------------------------------------------
+inline Conv2d allocate_conv2d_layer(uint32_t ks, uint32_t in_channels, uint32_t out_channels, uint32_t count) {
+  Conv2d l;
+  l.weights = (float*)aligned_alloc(32, out_channels*ks*ks*count*sizeof(float));
+  l.grad = (float*)aligned_alloc(32, out_channels*ks*ks*count*sizeof(float));
+  l.in_channels = in_channels;
+  l.out_channels = out_channels;
+  return l;
 }
 
 inline float relu(float* in) { return lt_f32(0.f, *in) ? *in : 0.f; }
@@ -356,26 +363,33 @@ void inline run_batchnorm2d(bnorm2d_state* state, float* in, uint32_t count, boo
   // TODO: update running mean and std
 }
 
+
+
 inline void _max2d(const float* in, uint8_t ks, float* out, int lda) {
-  uint16_t i=0, j=0;
-  float max = 0.f;
-  for(int i=0, j=0; i<ks*ks; i++) {
-    if(i%ks==0) j=i/ks*lda;
-    if(lt_f32(max, in[j++])) max=in[j-1];
+  uint16_t i, j;
+  float max = in[0];
+  #pragma omp parallel for num_threads(omp_get_max_threads())
+  for(i=0; i<ks; i++) { // can prob be replaces with while(ks-- > 0)
+    #pragma unroll
+    for(j=0; j<ks; j++) {
+      if(lt_f32(max, in[j])) max=in[j];
+    }
+    in+=lda;
   }
   *out = max;
 }
 
-inline void max_pool2d(float* in, float* out, uint32_t len, uint32_t img_size, uint8_t kernel_size=2, uint8_t stride=0, uint8_t dilation=1) {
-  for(int i=0; i<img_size-1; i++) {
-    for(int j=0; j<img_size-1; j++) {
-      _max2d(&in[i*img_size+j], kernel_size, &out[i*img_size+j], img_size); 
+inline void max_pool2d(float* a, float* b, uint32_t lda, uint32_t ldb, uint8_t kernel_size=2, uint8_t stride=0, uint8_t dilation=1) {
+  #pragma omp parallel for collapse(2) num_threads(omp_get_max_threads())
+  for(int i=0; i<ldb; i++) {
+    for(int j=0; j<ldb; j++) {
+      _max2d(&a[i*lda+j], kernel_size, &b[i*ldb+j], lda); 
     }
   }
 }
 
-constexpr inline uint32_t size_after_conv(uint32_t img_size, uint32_t kernel_size, uint32_t dilation=1, uint32_t stride=1) {
-  //return (img_size - dilation*(kernel_size-1)-1)/stride + 1;
+
+constexpr uint32_t size_after_conv(uint32_t img_size, uint32_t kernel_size, uint32_t dilation=1, uint32_t stride=1) {
   return (img_size - kernel_size) / stride + 1;
 }
 
@@ -400,7 +414,7 @@ int main() {
 
   uint32_t ls1 = size_after_conv(28, 5);
   uint32_t ls2 = size_after_conv(ls1, 5);
-  uint32_t ls3 = size_after_conv(ls2, 5);
+  uint32_t ls3 = size_after_conv(ls2, 2);
 
   // kaiming uniform -- https://arxiv.org/pdf/1502.01852.pdf
   #pragma omp parallel num_threads(omp_get_max_threads())
@@ -420,7 +434,7 @@ int main() {
   float* outs3 = (float*)aligned_alloc(32, 513*32*ls3*ls3*sizeof(float));
 
   batch_conv2d(batch, l1.weights, outs,  28, ls1, 512, 32);
-  //apply_relu(outs, 512*32*ls1*ls1);
+  apply_relu(outs, 512*32*ls1*ls1);
   batch_conv2d(outs,  l2.weights, outs2, ls1, ls2, 512, 32);
 
   std::cout << "\n\n";
@@ -429,63 +443,31 @@ int main() {
     std::cout << std::setw(3) << batch[i] << ", ";
   }
 
-  //apply_relu(outs2, 512*32*ls2*ls2);
+  apply_relu(outs2, 512*32*ls2*ls2);
 
   std::cout << "\n\n";
   for(int i=0; i<1*ls1*ls1; i++) {
     if(i%ls1==0) std::cout << "\n";
     if(i%(ls1*ls1)==0) std::cout << "\n";
-    std::cout << std::setw(9) << outs[i] << ", ";
+    std::cout << std::setw(11) << outs[i] << ", ";
   }
 
-  //run_batchnorm2d(&b1, outs2, 512*32*22*22, true);
+  run_batchnorm2d(&b1, outs2, 512*32*ls2*ls2, true);
 
   std::cout << "\n\n";
   for(int i=0; i<ls2*ls2; i++) {
     if(i%ls2==0) std::cout << "\n";
-    std::cout << std::setw(9) << outs2[i] << ", ";
+    std::cout << std::setw(11) << outs2[i] << ", ";
   }
+
+  max_pool2d(outs2, outs3, ls2, ls3);
+
   std::cout << "\n\n";
-  /*
-  std::cout << "\n\n";
-  for(int i=0; i<20*20; i++) {
-    if(i%20==0) std::cout << "\n";
+  for(int i=0; i<ls3*ls3; i++) {
+    if(i%ls3==0) std::cout << "\n";
     std::cout << std::setw(11) << outs3[i] << ", ";
   }
-  */
-
-  float out;
-  _max2d(outs2, 2, &out, 22);
-
-/*
-  long double sum1 = 0;
-  for(int i=0; i<I; i++) {
-    auto start = std::chrono::high_resolution_clock::now();
-    for(int j=0; j<(512*5*5)/8; j++) {
-      _5x5_conv_ps(&pa[0], &b[0], &c[0], 0);
-    }
-    auto end = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> ms_double = end - start;
-    sum1 += ms_double.count();
-  }
-  std::cout << "\n\nunaligned :" << sum1/I << " ms "<< std::endl;
-
-  sum1 = 0;
-  for(int i=0; i<I; i++) {
-    auto start = std::chrono::high_resolution_clock::now();
-    for(int j=0; j<(512*5*5)/8; j++) {
-      _5x5_conv_ps_u(&a[0], &b[0], &c[0], 0);
-    }
-    auto end = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> ms_double = end - start;
-    sum1 += ms_double.count();
-  }
-  std::cout << "pad aligned :" << sum1/I << " ms \n\n"<< std::endl;
-
-  std::cout << "\npa : ";
-  for(int i=0; i<512*8*5; i++) { if(i%8==0) std::cout << "\n"; std::cout << std::setw(3) << pa[i] << ", "; }
-  std::cout << "\n";
-  */
+  std::cout << "\n\n";
 
 
   free(l1.weights);
