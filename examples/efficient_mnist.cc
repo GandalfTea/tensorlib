@@ -23,13 +23,6 @@ typedef struct {
   size_t sl = 28; // rows and cols length
 } mnist_t;
 
-typedef struct {
-  float* weights;
-  float* grad;
-  uint32_t in_channels;
-  uint32_t out_channels;
-} Conv2d;
-
 //bool constexpr lt_f32 (float a, float b)  { return (b - a) > ( (fabs(a) < fabs(b) ? fabs(b) : fabs(a)) * EPSILON); }
 
 // https://zlib.net/manual.html
@@ -198,16 +191,16 @@ int pool(float* src, float** to, size_t img_count=BATCH_SIZE, size_t img_size=28
 }
 */
 
-// conv2d kernel
 // ---------------------------------------------
+// conv2d kernel
 
 // computes 8 output values at once
 inline void _mm256_conv2d_ps(const float* a, const float* b, float* c, int lda) {
-  int i, j=0;
+  uint8_t i;
   __m256 c0 = _mm256_setzero_ps();
   #pragma omp parallel for private(i, j) num_threads(omp_get_max_threads())
   for(i=0; i<5; i++) {
-    c0 = _mm256_fmadd_ps(_mm256_loadu_ps((float*)(a+0)), _mm256_broadcast_ss((float*)b  ), c0); 
+    c0 = _mm256_fmadd_ps(_mm256_loadu_ps((float*)(a  )), _mm256_broadcast_ss((float*)b  ), c0); 
     c0 = _mm256_fmadd_ps(_mm256_loadu_ps((float*)(a+1)), _mm256_broadcast_ss((float*)b+1), c0); 
     c0 = _mm256_fmadd_ps(_mm256_loadu_ps((float*)(a+2)), _mm256_broadcast_ss((float*)b+2), c0); 
     c0 = _mm256_fmadd_ps(_mm256_loadu_ps((float*)(a+3)), _mm256_broadcast_ss((float*)b+3), c0); 
@@ -220,7 +213,7 @@ inline void _mm256_conv2d_ps(const float* a, const float* b, float* c, int lda) 
 
 // iterates conv2d kernel over height ldc, loading in as many 
 // ymm registers as necessary to fill all width ldc values.
-inline void conv2d(float* a, float* b, float* c, int lda, int ldc) {
+inline void img_conv2d(float* a, float* b, float* c, int lda, int ldc) {
   uint32_t it = ceil((float)ldc/8);
   #pragma omp parallel for num_threads(omp_get_max_threads())
   for(int i=0; i<ldc; i++) {
@@ -238,7 +231,7 @@ inline void batch_conv2d(float* in, float* ker, float* out, int lda=28, int lo=2
   for(int i=0; i<batch; i++) {
     for(int k=0; k<channels; k++) {
       #pragma omp ordered
-      conv2d(&in[i*lda*lda], &ker[k*5*5], &out[i*lo*lo*channels + k*lo*lo], lda, lo);
+      img_conv2d(&in[i*lda*lda], &ker[k*5*5], &out[i*lo*lo*channels + k*lo*lo], lda, lo);
     }
   }
 }
@@ -246,6 +239,7 @@ inline void batch_conv2d(float* in, float* ker, float* out, int lda=28, int lo=2
 
 // randn
 // ---------------------------------------------
+
 void f32_uniform(float* to, uint32_t count, float up=1.f, float down=0.f, double seed=0.f, float e=0.f) {
   std::mt19937 rng(std::random_device{}()); 
   if(!eql_f32(seed, 0.f)) rng.seed(seed); 
@@ -257,37 +251,43 @@ void f32_uniform(float* to, uint32_t count, float up=1.f, float down=0.f, double
 // TODO: check for duplicates
 void randn_batch(const float* src, float* to, uint32_t len, uint32_t count) {
   std::mt19937 rng(std::random_device{}()); 
-  std::uniform_real_distribution<float> dist(0, len); // generate (count) randn int betweeen [0, len)
-  for(int i=0; i<count; i++) {
-    uint32_t ridx = (uint32_t)dist(rng);
-    memcpy(&to[i*28*28], &src[ridx*28*28], 28*28*sizeof(float));
+  std::uniform_real_distribution<float> dist(0, len); // [0, len) 
+  #pragma omp parallel num_threads(omp_get_max_threads())
+  while(count-- > 0) {
+    memcpy(to, &src[(uint32_t)dist(rng)*28*28], 28*28*sizeof(float));
+    to+=28*28;
   }
 }
 
 
 // nn
 // ---------------------------------------------
-inline Conv2d allocate_conv2d_layer(uint32_t ks, uint32_t in_channels, uint32_t out_channels, uint32_t count) {
-  Conv2d l;
-  l.weights = (float*)aligned_alloc(32, out_channels*ks*ks*count*sizeof(float));
-  l.grad = (float*)aligned_alloc(32, out_channels*ks*ks*count*sizeof(float));
-  l.in_channels = in_channels;
-  l.out_channels = out_channels;
-  return l;
+
+inline void relu(float* in, uint32_t count) {
+  #pragma omp parallel num_threads(omp_get_max_threads()) // TODO does this do anything?
+  while(count-- > 0) if(lt_f32(in[count], 0.f)) in[count] = 0.f;
 }
 
-inline float relu(float* in) { return lt_f32(0.f, *in) ? *in : 0.f; }
+typedef struct {
+  float* weights;
+  float* grad;
+  uint32_t in_channels;
+  uint32_t out_channels;
+} conv2d;
 
-void apply_relu(float* from, uint32_t count) { 
-  #pragma omp parallel for num_threads(omp_get_max_threads())
-  for(int i=0; i<count; i++) from[i] = relu(&from[i]); 
+inline conv2d init_conv2d_layer(uint32_t ks, uint32_t in_channels, uint32_t out_channels, uint32_t count, float up, float down) {
+  conv2d l = (conv2d){ .in_channels=in_channels, .out_channels=out_channels };
+  l.weights = (float*)aligned_alloc(ALIGNMENT, out_channels*ks*ks*count*sizeof(float));
+  l.grad = (float*)aligned_alloc(ALIGNMENT, out_channels*ks*ks*count*sizeof(float));
+  f32_uniform(l.weights, out_channels*ks*ks, up, down);
+  return l;
 }
 
 typedef struct {
   uint32_t size;
   uint32_t num_batches_tracked=0;
   bool affine;
-  float* weight;
+  float* weights;
   float* bias;
   float* mean;
   float* var;
@@ -296,15 +296,11 @@ typedef struct {
 } bnorm2d_state;
 
 bnorm2d_state init_batchnorm2d(uint32_t size, bool affine=true) {
-  bnorm2d_state r;
-  r.size = size;
-  r.affine = affine;
-  r.eps = 1e-5;
-  r.momentum = 0.1f;
+  bnorm2d_state r = (bnorm2d_state){ .size=size, .affine=affine, .eps=1e-5, .momentum=0.1f, };
   if(affine) {
-    r.weight = (float*)aligned_alloc(32, size*sizeof(float));
+    r.weights = (float*)aligned_alloc(32, size*sizeof(float));
     r.bias = (float*)aligned_alloc(32, size*sizeof(float));
-    f32_uniform(r.weight, 32);
+    f32_uniform(r.weights, 32);
     f32_uniform(r.bias, 32);
   }
   return r;
@@ -354,8 +350,8 @@ void inline run_batchnorm2d(bnorm2d_state* state, float* in, uint32_t count, boo
     for(int c=0; c<32; c++) {
       float* wptr = &in[i*22*22*32+c*22*22];
       for(int p=0; p<22*22; p++) {
-        wptr[p] = (wptr[p]+state->bias[c]-means[c])*(invstd[c]*state->weight[c]);
-        // pytorch first multiplies then adds bias-mean*invstd*weight;
+        wptr[p] = (wptr[p]+state->bias[c]-means[c])*(invstd[c]*state->weights[c]);
+        // pytorch first multiplies then adds bias-mean*invstd*weights;
         // https://github.com/pytorch/pytorch/blob/420b37f3c67950ed93cd8aa7a12e673fcfc5567b/aten/src/ATen/native/Normalization.cpp#L96 
       }
     }
@@ -388,44 +384,35 @@ inline void max_pool2d(float* a, float* b, uint32_t lda, uint32_t ldb, uint8_t k
   }
 }
 
-
 constexpr uint32_t size_after_conv(uint32_t img_size, uint32_t kernel_size, uint32_t dilation=1, uint32_t stride=1) {
   return (img_size - kernel_size) / stride + 1;
 }
 
 
-#define I 10000
-
 int main() {
-
 
   // load 512 batch
   mnist_t mnist = load_mnist();
   float* batch = (float*)aligned_alloc(32, 513*28*28*sizeof(float)); 
   randn_batch(mnist.x_train, batch, mnist.ltrain, 512);
 
+  // kaiming uniform -- https://arxiv.org/pdf/1502.01852.pdf
+  float kbound32 = std::sqrt(3.f)*std::sqrt(2.f / (1.f + 5.f)) / std::sqrt(32*5*5);
+  float kbound64 = std::sqrt(3.f)*std::sqrt(2.f / (1.f + 5.f)) / std::sqrt(64*5*5);
+
   // init layers
-  Conv2d l1 = allocate_conv2d_layer(5, 1,  32, 512);
-  Conv2d l2 = allocate_conv2d_layer(5, 32, 32, 512);
-  Conv2d l4 = allocate_conv2d_layer(3, 32, 64, 512);
-  Conv2d l5 = allocate_conv2d_layer(3, 64, 64, 512);
+  conv2d l1 = init_conv2d_layer(5, 1,  32, 512, kbound32, -kbound32);
+  conv2d l2 = init_conv2d_layer(5, 32, 32, 512, kbound32, -kbound32);
+  conv2d l4 = init_conv2d_layer(3, 32, 64, 512, kbound64, -kbound64);
+  conv2d l5 = init_conv2d_layer(3, 64, 64, 512, kbound64, -kbound64);
+
   bnorm2d_state b1 = init_batchnorm2d(32);
   bnorm2d_state b2 = init_batchnorm2d(64);
+
 
   uint32_t ls1 = size_after_conv(28, 5);
   uint32_t ls2 = size_after_conv(ls1, 5);
   uint32_t ls3 = size_after_conv(ls2, 2);
-
-  // kaiming uniform -- https://arxiv.org/pdf/1502.01852.pdf
-  #pragma omp parallel num_threads(omp_get_max_threads())
-  {
-    float kbound32 = std::sqrt(3.f)*std::sqrt(2.f / (1.f + 5.f)) / std::sqrt(32*5*5);
-    float kbound64 = std::sqrt(3.f)*std::sqrt(2.f / (1.f + 5.f)) / std::sqrt(64*5*5);
-    f32_uniform(l1.weights, 32*5*5, kbound32, -kbound32);
-    f32_uniform(l2.weights, 32*5*5, kbound32, -kbound32);
-    f32_uniform(l4.weights, 64*5*5, kbound64, -kbound64);
-    f32_uniform(l5.weights, 64*5*5, kbound64, -kbound64);
-  }
 
   // intermidiary activations
   // compute resulting panels -- (img_size-dilation*(kernel_size-1)-1)/stride
@@ -434,7 +421,7 @@ int main() {
   float* outs3 = (float*)aligned_alloc(32, 513*32*ls3*ls3*sizeof(float));
 
   batch_conv2d(batch, l1.weights, outs,  28, ls1, 512, 32);
-  apply_relu(outs, 512*32*ls1*ls1);
+  relu(outs, 512*32*ls1*ls1);
   batch_conv2d(outs,  l2.weights, outs2, ls1, ls2, 512, 32);
 
   std::cout << "\n\n";
@@ -443,7 +430,7 @@ int main() {
     std::cout << std::setw(3) << batch[i] << ", ";
   }
 
-  apply_relu(outs2, 512*32*ls2*ls2);
+  relu(outs2, 512*32*ls2*ls2);
 
   std::cout << "\n\n";
   for(int i=0; i<1*ls1*ls1; i++) {
