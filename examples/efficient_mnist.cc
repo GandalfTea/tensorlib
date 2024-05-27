@@ -450,10 +450,10 @@ inline void _max2d(const float* in, uint8_t ks, float* out, int lda) {
 }
 
 // default stride is kernel_size
-inline void max_pool2d(float* a, float* b, uint32_t lda, uint32_t ldb, uint32_t ch, uint8_t kernel_size=2, uint8_t stride=2, uint8_t dilation=1) {
+inline void max_pool2d(float* a, float* b, uint32_t lda, uint32_t ldb, uint32_t ch, uint32_t count=512, uint8_t kernel_size=2, uint8_t stride=2, uint8_t dilation=1) {
   uint32_t cnt = 0, i=0;
   #pragma omp parallel num_threads(omp_get_max_threads())
-  while(cnt++ < ch*((lda*lda)/stride)) {
+  while(cnt++ < (count/stride)*ch*((lda*lda)/stride)) {
     if(i++==lda/stride) { a+=lda; i=0;}
     _max2d(a, kernel_size, b++, lda); 
     a+=stride;
@@ -482,15 +482,18 @@ inline linear_state init_linear(uint32_t in_features, uint32_t out_features, boo
   return r;
 }
 
+// AVX-256 sgemm
+
 inline void pack_a(int k, const float* a, int lda, float* to) {
   for(int j=0; j<k; j++) {
-    const float *a_ij_ptr = &a[(j*lda)+0]; 
+    const float *a_ij_ptr = &a[(j*lda)]; 
     *to = *a_ij_ptr;
     *(to+1) = *(a_ij_ptr+1); *(to+2) = *(a_ij_ptr+2);
     *(to+3) = *(a_ij_ptr+3); *(to+4) = *(a_ij_ptr+4);
     *(to+5) = *(a_ij_ptr+5); *(to+6) = *(a_ij_ptr+6);
-    *(to+7) = *(a_ij_ptr+7);
-    to += 8;
+    *(to+7) = *(a_ij_ptr+7); *(to+8) = *(a_ij_ptr+8);
+    *(to+9) = *(a_ij_ptr+9); 
+    to += 10;
   }
 }
 
@@ -514,13 +517,12 @@ inline void pack_b(int k, const float* b, int ldb, float* to) {
 
 // TODO: segfault on c with aligned functions
 inline void _sgemm(int k, float* a, float* b, float* c, int ldc) {
-  m256_t c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, av, bv;
-  __m256 w0, w1, w2, w3, w4, w5, w6, w7, w8, w9;
+  m256_t c0, c1, c2, c3, c4, c5, c6, c7, av, bv;
+  __m256 w0, w1, w2, w3, w4, w5, w6, w7;
   c0.v = _mm256_setzero_ps(); c1.v = _mm256_setzero_ps();
   c2.v = _mm256_setzero_ps(); c3.v = _mm256_setzero_ps();
   c4.v = _mm256_setzero_ps(); c5.v = _mm256_setzero_ps();
   c6.v = _mm256_setzero_ps(); c7.v = _mm256_setzero_ps();
-  c8.v = _mm256_setzero_ps(); c9.v = _mm256_setzero_ps();
   #pragma omp parallel for num_threads(omp_get_max_threads())
   for(int i=0; i<k; i++) {
     av.v = _mm256_load_ps((float*)a);
@@ -530,81 +532,101 @@ inline void _sgemm(int k, float* a, float* b, float* c, int ldc) {
     bv.v = _mm256_broadcast_ss((float*)&b[3]); c3.v = _mm256_fmadd_ps(av.v, bv.v, c3.v);
     bv.v = _mm256_broadcast_ss((float*)&b[4]); c4.v = _mm256_fmadd_ps(av.v, bv.v, c4.v);
     bv.v = _mm256_broadcast_ss((float*)&b[5]); c5.v = _mm256_fmadd_ps(av.v, bv.v, c5.v);
-    bv.v = _mm256_broadcast_ss((float*)&b[6]); c6.v = _mm256_fmadd_ps(av.v, bv.v, c6.v);
-    bv.v = _mm256_broadcast_ss((float*)&b[7]); c7.v = _mm256_fmadd_ps(av.v, bv.v, c7.v);
-    bv.v = _mm256_broadcast_ss((float*)&b[8]); c8.v = _mm256_fmadd_ps(av.v, bv.v, c6.v);
-    bv.v = _mm256_broadcast_ss((float*)&b[9]); c9.v = _mm256_fmadd_ps(av.v, bv.v, c7.v);
-    a+=8; b+=10;
-
-    std::cout << "\n";
-    std::cout << "\n";
-    for(int i=0; i<8; i++) std::cout << std::setw(13) << av.f[i] << ", ";
-    std::cout << "\n";
-    for(int i=0; i<8; i++) std::cout << std::setw(13) << bv.f[i] << ", ";
-    std::cout << "\n";
-    std::cout << "\n";
-    for(int i=0; i<8; i++) std::cout << std::setw(13) << c0.f[i] << ", ";
-    std::cout << "\n";
-    for(int i=0; i<8; i++) std::cout << std::setw(13) << c1.f[i] << ", ";
-    std::cout << "\n";
-    for(int i=0; i<8; i++) std::cout << std::setw(13) << c2.f[i] << ", ";
-    std::cout << "\n";
-    for(int i=0; i<8; i++) std::cout << std::setw(13) << c3.f[i] << ", ";
-    std::cout << "\n";
-    for(int i=0; i<8; i++) std::cout << std::setw(13) << c4.f[i] << ", ";
-    std::cout << "\n";
-    for(int i=0; i<8; i++) std::cout << std::setw(13) << c5.f[i] << ", ";
-    std::cout << "\n";
-    for(int i=0; i<8; i++) std::cout << std::setw(13) << c6.f[i] << ", ";
-    std::cout << "\n";
-    for(int i=0; i<8; i++) std::cout << std::setw(13) << c7.f[i] << ", ";
-    std::cout << "\n";
-    for(int i=0; i<8; i++) std::cout << std::setw(13) << c8.f[i] << ", ";
-    std::cout << "\n";
-    for(int i=0; i<8; i++) std::cout << std::setw(13) << c9.f[i] << ", ";
+    bv.v = _mm256_broadcast_ss((float*)&b[6]); c6.v = _mm256_fmadd_ps(av.v, bv.v, c6.v); 
+    bv.v = _mm256_broadcast_ss((float*)&b[7]); c7.v = _mm256_fmadd_ps(av.v, bv.v, c7.v); 
+    a+=8; b+=8;
   }
   w0 = _mm256_loadu_ps((float*)&c[0*ldc]); w1 = _mm256_loadu_ps((float*)&c[1*ldc]);
   w2 = _mm256_loadu_ps((float*)&c[2*ldc]); w3 = _mm256_loadu_ps((float*)&c[3*ldc]);
   w4 = _mm256_loadu_ps((float*)&c[4*ldc]); w5 = _mm256_loadu_ps((float*)&c[5*ldc]);
   w6 = _mm256_loadu_ps((float*)&c[6*ldc]); w7 = _mm256_loadu_ps((float*)&c[7*ldc]);
-  w8 = _mm256_loadu_ps((float*)&c[8*ldc]); w9 = _mm256_loadu_ps((float*)&c[9*ldc]);
   c0.v = _mm256_add_ps(c0.v, w0); c1.v = _mm256_add_ps(c1.v, w1);
   c2.v = _mm256_add_ps(c2.v, w2); c3.v = _mm256_add_ps(c3.v, w3);
   c4.v = _mm256_add_ps(c4.v, w4); c5.v = _mm256_add_ps(c5.v, w5);
   c6.v = _mm256_add_ps(c6.v, w6); c7.v = _mm256_add_ps(c7.v, w7);
-  c8.v = _mm256_add_ps(c8.v, w8); c9.v = _mm256_add_ps(c9.v, w9);
   _mm256_storeu_ps( &c[0*ldc], c0.v); _mm256_storeu_ps( &c[1*ldc], c1.v);
   _mm256_storeu_ps( &c[2*ldc], c2.v); _mm256_storeu_ps( &c[3*ldc], c3.v);
   _mm256_storeu_ps( &c[4*ldc], c4.v); _mm256_storeu_ps( &c[5*ldc], c5.v);
   _mm256_storeu_ps( &c[6*ldc], c6.v); _mm256_storeu_ps( &c[7*ldc], c7.v);
-  _mm256_storeu_ps( &c[8*ldc], c8.v); _mm256_storeu_ps( &c[9*ldc], c9.v);
 }
 
-void sgemm(float* a, float* b, float* c, int m=512, int n=10, int k=576, int mb=8, int kb=8) {
+void sgemm(float* a, float* b, float* c, int m=512, int n=10, int k=576, int mb=8, int kb=10) {
   #pragma omp parallel for shared(a, b, c, m, n, k, mb, kb) default(none) num_threads(omp_get_max_threads())
   for(int i=0; i<k; i+=kb) {
     int ib = std::min(k-i, kb);
-    float* pb = (float*)aligned_alloc(ALIGNMENT, ib*n*sizeof(float));
+    float* pb = (float*)aligned_alloc(ALIGNMENT, 96*sizeof(float)); // replace n with 32
     for(int ii=0; ii<m; ii+=mb) {
       int iib = std::min(m-ii, mb);
-      float* pa = (float*)aligned_alloc(ALIGNMENT, ib*iib*sizeof(float));
-/*
-      float* wa = &a[i*k+ii];
-      float* wb = &b[i];
-      for(int iii=0; iii<n; iii+=8) {
-        if(ii==0) pack_b(iib, &wb[iii*n], n, &pb[iii*ib]);
-        for(int iiii=0; iiii<iib; iiii+=8) {
-          if(iii==0) pack_a(ib, &wa[iiii], k ,&pa[iiii*ib]);
-          _sgemm(iib, &pa[iiii*ib], &pb[iii*ib], &c[ii+iii*n+iiii], n);
-        }
-      }
-      */
-      pack_b(iib, &b[i], n, pb);
-      pack_a(ib, &a[i*k+ii], k, pa);
-      _sgemm(iib, &pa[0*ib], &pb[0*ib], &c[ii], n);
+      float* pa = (float*)aligned_alloc(ALIGNMENT, 96*sizeof(float));
+
+      pack_a(iib, &a[i*m+ii], m, pa);
+      pack_b(ib, &b[i], n, pb);
+
+      std::cout << "\n\n";
+      for(int i=0; i<ib*iib; i++) { if(i%ib==0) std::cout << "\n"; std::cout << std::setw(13) << pa[i]; }
+      std::cout << "\n\n";
+      for(int i=0; i<ib*8; i++) { if(i%ib==0) std::cout << "\n"; std::cout << std::setw(13) << pb[i]; }
+
+      _sgemm(ib, pa, pb, &c[ii], n);
     }
   }
 }
+
+// normal sgemm
+void linear_sgemm(float* a, float* b, float* c, int m=512, int n=10, int k=576) {
+  for(int mi=0; mi<m; mi++) {
+    for(int ki=0; ki<k; ki++) {
+      for(int ni=0; ni<n; ni++) {
+        c[mi*n+ni] += a[mi*n+ki] * b[ki*n+ni];
+      }
+    }
+  }
+}
+
+// Model
+// ---------------------------------------------
+
+typedef struct {
+  conv2d l1;
+  conv2d l2;
+  bnorm2d_state l3;
+  conv2d l4;
+  conv3d l5;
+  bnorm2d_state l6;
+  linear_state l7;
+} model;
+
+model init_model() {
+  model r;
+  // kaiming uniform -- https://arxiv.org/pdf/1502.01852.pdf
+  float lhs = std::sqrt(3.f)*std::sqrt(2.f/(1.f+5.f)); // tinygrad does math.sqrt(5)**2 as default a
+  float kb325 = lhs / std::sqrt(32*5*5);
+  float kb323 = lhs / std::sqrt(32*3*3);
+  float kb643 = lhs / std::sqrt(64*3*3);
+  r.l1 = init_conv2d_layer(5, 1,  32, 512, kb325, -kb325);
+  r.l2 = init_conv2d_layer(5, 32, 32, 512, kb325, -kb325);
+  r.l3 = init_batchnorm2d(32);
+  r.l4 = init_conv2d_layer(3, 32, 64, 512, kb323, -kb323);
+  r.l5 = init_conv2d_layer(3, 64, 64, 512, kb643, -kb643);
+  r.l6 = init_batchnorm2d(64);
+  r.l7 = init_linear(576, 10);
+  return r;
+}
+
+
+// Backprop
+// ---------------------------------------------
+
+void backprop_linear() {}
+void backprop_batchnorm() {}
+void backprop_conv2d() {}
+
+void backprop_model() {}
+
+// Adam optimiser
+// ---------------------------------------------
+
+void init_adam() {}
 
 
 int main() {
@@ -620,7 +642,7 @@ int main() {
   linear_state l7;
   {
     // kaiming uniform -- https://arxiv.org/pdf/1502.01852.pdf
-    float lhs = std::sqrt(3.f)*std::sqrt(2.f/(1.f+5.f)); // tinygrad does math.sqrt(5) as default a
+    float lhs = std::sqrt(3.f)*std::sqrt(2.f/(1.f+5.f)); // tinygrad does math.sqrt(5)**2 as default a
     float kb325 = lhs / std::sqrt(32*5*5);
     float kb323 = lhs / std::sqrt(32*3*3);
     float kb643 = lhs / std::sqrt(64*3*3);
@@ -649,7 +671,7 @@ int main() {
   float* outs3 = (float*)aligned_alloc(32, 513*64*ls3*ls3*sizeof(float));
   float* outs4 = (float*)aligned_alloc(32, 513*64*ls4*ls4*sizeof(float));
   float* outs5 = (float*)aligned_alloc(32, 513*64*ls5*ls5*sizeof(float));
-  float* outs6 = (float*)aligned_alloc(32, 544*10*sizeof(float));
+  float* outs6 = (float*)aligned_alloc(32, 513*10*sizeof(float));
 
   // run network
   batch_conv2d_5(batch, l1.weights, outs0, 28,  ls0, 512, 32);  relu(outs0, 512*32*ls1*ls1);
@@ -663,20 +685,13 @@ int main() {
   max_pool2d(outs4, outs5, ls4, ls5, 64);
 
   //sgemm(outs5, l7.weights, outs6, 512, 10, 576); 
-  sgemm(outs5, l7.weights, outs6, 10, 10, 10); 
+  linear_sgemm(outs5, l7.weights, outs6, 512, 10, 576);
 
-  /*
-  std::cout << "\n\nl5:\n";
-  for(int i=0; i<64*ls5*ls5; i++) {
-    if(i%(ls5*ls5)==0) std::cout << "\n";
-    if(i%ls5==0) std::cout << " - ";
-    std::cout << std::setw(13) << outs5[i] << ", ";
-  }
-
+/*
   std::cout << "\n\nl6:\n";
   for(int i=0; i<512*10; i++) {
     if(i%10==0) std::cout << "\n";
-    std::cout << std::setw(13) << outs6[i] << ", ";
+    std::cout << std::setw(10) << outs6[i] << ", ";
   }
   */
 
@@ -731,10 +746,6 @@ int main() {
     std::cout << std::setw(11) << outs4[i] << ", ";
   }
   */
-
-
-
-
 
   std::cout << "\n\n";
 
