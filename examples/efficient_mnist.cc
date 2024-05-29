@@ -614,6 +614,51 @@ model init_model() {
 }
 
 
+// Sparse Categorical Cross-Entropy Loss
+// ---------------------------------------------
+
+float max(float* in, uint32_t count) {
+  float b = in[0];
+  while(count-- > 0) if(lt_f32(b, in[count])) b = in[count]; 
+  return b;
+}
+
+void log_softmax(float* in, uint32_t count) {
+  float sum = 0.f;
+  float b = max(in, count);
+  float* m = (float*)malloc(count*sizeof(float));
+  for(int i=0; i<count; i++) { 
+    register float bf = in[i] - b;
+    m[i] = bf;
+    sum += std::exp(bf);
+  }
+  float slog = std::log2(sum);
+  for(int i=0; i<count; i++) in[i] = m[i]-slog;
+  free(m);
+} 
+
+// encoding to -1 to skip final loss negation
+void idx_to_onehot(float* out, uint8* in, uint32_t count, uint32_t num_classes) {
+  int i=0, j=0;
+  for(; i<count*num_classes; i++) {
+    out[j+in[i]] = -1.f;
+    j+=10;
+  }
+}
+
+// we could skip onehot
+float sparse_categorical_crossentropy(float* in, uint32_t count, float* y, uint32_t batch=512, uint32_t num_classes=10, float smoothing=0.f) {
+  float sum, loss;
+  log_softmax(in, count);
+  float* y_enc = (float*)aligned_alloc(ALIGNMENT, count*num_classes*sizeof(float));
+  memset(y_enc, 0, count*num_classes*sizeof(float)); // maybe calloc?
+  idx_to_onehot(y_enc, y, count, num_classes);
+  for(int i=0; i<count*num_classes; i++) sum += in[i] * y_enc[i];
+  free(y_enc);
+  return sum/batch + smoothing;
+}
+
+
 // Backprop
 // ---------------------------------------------
 
@@ -686,14 +731,13 @@ int main() {
 
   //sgemm(outs5, l7.weights, outs6, 512, 10, 576); 
   linear_sgemm(outs5, l7.weights, outs6, 512, 10, 576);
+  log_softmax(outs6, 512*10);
 
-/*
   std::cout << "\n\nl6:\n";
   for(int i=0; i<512*10; i++) {
     if(i%10==0) std::cout << "\n";
     std::cout << std::setw(10) << outs6[i] << ", ";
   }
-  */
 
 /*
   float* wo4 = outs4;
