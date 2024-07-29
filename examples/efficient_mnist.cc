@@ -179,6 +179,7 @@ inline void _mm256_conv2d_ps(const float* a, const float* b, float* c, int lda, 
 }
 
 // run kernel on a batch of images 
+// TODO: only run 8 kernel when possible
 static void batch_conv2d(const float* in, const float* ker, float* out, int ks, 
                          int lda=28, int lo=24, int batch=512, int channels=32) 
 {
@@ -187,11 +188,24 @@ static void batch_conv2d(const float* in, const float* ker, float* out, int ks,
   const int sci = lda*lda;          // strinde channel in
   const int sio = lo*lo*channels;   // stride image out
   const int it = ceil((float)lo/8); 
-  for(b=0; b<batch; b++) {
-    for(c=0; c<channels; c++) {
-      for(i=0; i<lo; i++) {
-        for(j=0; j<it*8; j+=8) 
-          _mm256_conv2d_ps(&in[b*sci+i*lda+j], &ker[c*ks*ks], &out[b*sio+c*sco+i*lo+j], lda, ks);
+  if(false) {
+    for(b=0; b<batch; b++) {
+      for(c=0; c<channels; c++) {
+        for(i=0; i<lo; i++) {
+          for(j=0; j<it*8; j+=8) { 
+            printf("\n%d", b*sio+c*sco+i*lo+j);
+            fflush(stdout);
+            _mm256_conv2d_ps(&in[b*sci+i*lda+j], &ker[c*ks*ks], &out[b*sio+c*sco+i*lo+j], lda, ks);
+          }
+        }
+      }
+    }
+  } else {
+    for(b=0; b<batch; b++) {
+      for(c=0; c<channels; c++) {
+        for(i=0; i<lo; i++) {
+          for(j=0; j<lo; j++) out[b*sio+c*sco+i*lo+j] += in[b*sci+i*lda+j] * ker[c*ks*ks];
+        }
       }
     }
   }
@@ -358,7 +372,7 @@ typedef struct {
   uint32_t out_features;
 } linear_state;
 
-inline linear_state init_linear(uint32_t in_features, uint32_t out_features, bool bias=true) {
+static inline linear_state init_linear(uint32_t in_features, uint32_t out_features, bool bias=true) {
   linear_state r = (linear_state){ .grad=nullptr, .bias=nullptr, .out_features=out_features };  
   r.grad = (float*)calloc(in_features*out_features, sizeof(float));
   r.weights = (float*)aligned_alloc(ALIGNMENT, in_features*out_features*sizeof(float));
@@ -371,20 +385,39 @@ inline linear_state init_linear(uint32_t in_features, uint32_t out_features, boo
   return r;
 }
 
-void linear_sgemm(const float* a, const float* b, float* c, const int m=512, const int n=10, const int k=576) {
-  for(int mi=0; mi<m; mi++) {
-    for(int ki=0; ki<k; ki++) {
-      for(int ni=0; ni<n; ni++) {
-        c[mi*n+ni] += a[mi*n+ki] * b[ki*n+ni];
+static void linear_sgemm(const float* a, const float* b, float* c, const int m=512, 
+                         const int n=10, const int k=576) 
+{
+/*
+  for(int mi=0; mi<m; mi++) 
+    for(int ki=0; ki<k; ki++)
+      for(int ni=0; ni<n; ni++) c[mi*n+ni] += a[mi*n+ki] * b[ki*n+ni];
+      */
+  int mi, ki, ni;
+  for(mi=0; mi<m; mi++) 
+    for(ki=0; ki<k; ki++)
+      for(ni=0; ni<n; ni++) {
+        //printf("\nc:%d %f - a:%d %f - b:%d %f", mi*m+ni, c[mi*m+ni], mi*m+ki, a[mi*m+ki], ki*ki+ni, b[ki*ki+ni]);
+        c[mi*m+ni] += a[mi*m+ki] * b[ki*k+ni];
       }
+}
+
+static void transpose(float* src, const uint32_t m, const uint32_t n) {
+  int i=0, j=0;
+  float tmp;
+  for(i=0; i<m/2; i++) {
+    for(j=0; j<n; j++) {
+      tmp=src[i*m+j];
+      src[i*m+j] = src[(m-i-1)*m+(n-j-1)];
+      src[(m-i-1)*m+(n-j-1)] = tmp;
     }
   }
-}
+} 
 
 
 // Sparse Categorical Cross-Entropy Loss --------------
 
-float max(float* in, uint32_t count) {
+static float max(float* in, uint32_t count) {
   float b = in[0];
   while(count-- > 0) if(LT_F32(b, in[count])) b = in[count]; 
   return b;
@@ -504,27 +537,41 @@ static model init_model(void) {
 
 // Backprop ------------------------------------------
 
-// TODO: no hardcoded bullshit
-static void backprop_sccl(const float* loss, float* out, float* probs, uint8_t* y, uint32_t classes) {
+static void backprop_sccl(const float* loss, float* out, float* probs, 
+                          const uint8_t* y, const uint32_t classes=10) 
+{
   int i=0, j=0, k=0, yidx;
-  for(i=0; i<BATCH/classes; i++) {
+  for(i=0; i<BATCH; i++) {
     yidx = y[k++]; 
-    for(j=0; j<10; j++) out[i*10+j] = -probs[i+j]*probs[yidx];
+    for(j=0; j<classes; j++) out[i*10+j] = -probs[i+j]*probs[yidx];
     out[i*10+yidx] = probs[yidx]*(1-probs[yidx]);
   }
 }
 
-static void backprop_loss_l7(const float* loss, linear_state* l, float* probs, uint8_t* labels, float* xgrad) {
-  float* y = (float*)malloc(512*10*sizeof(float));
-  backprop_sccl(loss, y, probs, labels, 10);
-  linear_sgemm(y, l->weights, l->grad);
-  //linear_sgemm(l->weights, y, xgrad);
-  free(y); 
+// TODO: transpose
+static void backprop_loss_l7(const float* loss, linear_state* l, float* logits, 
+                             float* probs, const uint8_t* labels, float* xgrad) 
+{
+  transpose(logits, 512, 576);
+  transpose(l->weights, 576, 10);
+  float* dY = (float*)malloc(BATCH*10*sizeof(float));
+  backprop_sccl(loss, dY, probs, labels, 10); // dY - 512x10 (loss + softmax)
+  linear_sgemm(logits, dY, l->grad, 576, 10, 512);    // Xt @ dY = dW - 576x512 @ 512x10 = 576x10 
+  linear_sgemm(dY, l->weights, xgrad, 512, 576, 10);  // dY @ Wt = dX - 512x10  @ 10x576 = 512x576
+  free(dY); 
 }
 
-void backprop_batchnorm() {}
-void backprop_conv2d() {}
-void backprop_model() {}
+static void backprop_batchnorm() {}
+static void backprop_conv2d() {}
+
+static void backprop(const float* loss, model* m, float* probs, const uint8_t* labels, const uint32_t count) {
+  float* l7dw = (float*)malloc(BATCH*576*sizeof(float));
+  backprop_loss_l7(loss, &m->l7, probs, probs, labels, l7dw);
+
+
+  free(l7dw);
+}
+
 
 
 // perf_events_open PMU helpers ----------------------
@@ -612,6 +659,7 @@ static float forward(model* m, activations* a, float* input, unsigned char* labe
 
   linear_sgemm(a->outs5, m->l7.weights, a->outs6, 512, 10, 576);
 
+
 /*
   for(int k=0; k<40; k++) {
     for(int g=0; g<10; g++) printf("%9.4f, ", a->outs4[k*10+g]);
@@ -621,13 +669,6 @@ static float forward(model* m, activations* a, float* input, unsigned char* labe
 
   float loss = sparse_categorical_crossentropy(a->outs6, 512, labels);
   return loss;
-}
-
-static void backprop(const float* loss, model* m, float* probs, uint8_t* labels, uint32_t count) {
-
-  float* l7wg = (float*)malloc(512*10*sizeof(float));
-  backprop_loss_l7(loss, &m->l7, probs, labels, l7wg);
-
 }
 
 
@@ -707,6 +748,7 @@ int main(void) {
 
   for(int i=0; i<51; i++) {
     BEGIN_PMU_TRACKING();
+
     zero_activations(&a);
     randn_batch(mnist.x_train, mnist.y_train, x_batch, y_batch, mnist.ltrain, BATCH);
     loss = forward(&m, &a, x_batch, y_batch);
