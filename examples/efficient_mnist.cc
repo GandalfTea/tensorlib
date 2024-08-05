@@ -22,7 +22,7 @@
 #define CLASSES 10
 #define EPSILON 1e-5 
 #define ALIGNMENT 32
-#define LR 0.1 
+#define LR 0.0001 
 
 #define EQL_F32(a, b) fabs(a-b) <= ((fabs(a)>fabs(b) ? fabs(b) : fabs(a))*EPSILON)
 #define LT_F32(a, b) (b-a) > ((fabs(a) < fabs(b) ? fabs(b) : fabs(a)) * EPSILON)
@@ -182,6 +182,7 @@ static void batch_conv2d(const float* in, const float* ker, float* out, int ks,
   const int sci = lda*lda;          // strinde channel in
   const int sio = lo*lo*channels;   // stride image out
   const int it = ceil((float)lo/8); 
+
   if(true) {
     for(b=0; b<batch; b++) {
       for(c=0; c<channels; c++) {
@@ -271,22 +272,25 @@ typedef struct {
   uint32_t size;
   uint32_t num_batches_tracked=0;
   bool affine;
+  bool b_first_run;
   float* weights;
   float* bias;
   float* means;
-  float* invstd;
+  float* invar;
+  float* x_hat;
   float* var;
   float eps;
   float momentum;
 } bnorm2d_state;
 
-bnorm2d_state init_batchnorm2d(uint32_t size, bool affine=true) {
-  bnorm2d_state r = (bnorm2d_state){ .size=size, .affine=affine, .eps=EPSILON, .momentum=0.1f, };
+bnorm2d_state init_batchnorm2d(uint32_t size, uint32_t img_s, bool affine=true) {
+  bnorm2d_state r = (bnorm2d_state){ .size=size, .affine=affine, .b_first_run=true, .eps=EPSILON, .momentum=0.1f, };
   if(affine) {
     r.weights = (float*)aligned_alloc(32, size*sizeof(float));
     r.bias    = (float*)aligned_alloc(32, size*sizeof(float));
     r.means  = (float*)calloc(size, sizeof(float));
-    r.invstd = (float*)calloc(size, sizeof(float));
+    r.invar  = (float*)calloc(size, sizeof(float));
+    r.x_hat  = (float*)malloc(BATCH*size*img_s*img_s*sizeof(float));
     f32_uniform(r.weights, size);
     f32_uniform(r.bias, size);
   }
@@ -297,49 +301,117 @@ bnorm2d_state init_batchnorm2d(uint32_t size, bool affine=true) {
 /* NOTE: normalisation is done over the channel dimension because each channel represents
    one convolution kernel. This aids in feature extraction. */
 
+// pytorch first multiplies then adds bias-mean*invstd*weights;
+// https://github.com/pytorch/pytorch/blob/420b37f3c67950ed93cd8aa7a12e673fcfc5567b/aten/src/ATen/native/Normalization.cpp#L96 
+
 void inline run_batchnorm2d(bnorm2d_state* s, float* in, uint32_t ch, uint32_t img_s, 
                             uint32_t batch=512, bool training=false) 
 {
-  memset(s->means, 0, ch*sizeof(float));
-  memset(s->invstd, 0, ch*sizeof(float));
+  float* newinvar = (float*)calloc(ch, sizeof(float));
+  float* newmeans = (float*)calloc(ch, sizeof(float));
   float* vars = (float*)calloc(ch, sizeof(float));
   const uint32_t s_ch  = img_s*img_s;
   const uint32_t s_img = ch*s_ch;
+  int b, c, i, p, widx;
+  float* wptr;
 
-  for(int b=0; b<batch; b++) {    // batch mean 
-    int c;
+  for(b=0; b<batch; b++)    // batch mean 
+    for(c=0; c<ch; c++) 
+      for(i=0; i<s_ch; i++) 
+        newmeans[c] += in[b*s_img+c*s_ch+i];
+
+  if(s->b_first_run) {
+    for(int c=0; c<ch; c++) s->means[c] = newmeans[c];
+    s->b_first_run = false;
+  } else { 
+    for(int c=0; c<ch; c++) 
+      s->means[c]  = (1-s->momentum)*s->means[c]  + s->momentum*newmeans[c];
+  }
+
+  for(b=0; b<batch; b++)    // batch variance and inverse standard deviation
+    for(c=0; c<ch; c++) 
+      for(i=0; i<s_ch; i++) 
+        vars[c] += std::pow(in[b*s_img+c*s_ch+i]-s->means[c], 2);
+
+  for(c=0; c<ch; c++) { 
+    vars[c] /= s_ch*batch; 
+    newinvar[c] = 1 / (vars[c]+s->eps);
+    s->invar[c] = (1-s->momentum)*s->invar[c] + s->momentum*newinvar[c];
+  }
+
+  for(b=0; b<batch; b++) {  // normalise, scale and shift
     for(c=0; c<ch; c++) {
-      uint32_t widx = b*s_img+c*s_ch;
-      for(int i=0; i<s_ch; i++) s->means[c] += in[widx+i];
+      wptr = &in[b*s_img+c*s_ch];
+      for(p=0; p<s_ch; p++) { 
+        s->x_hat[b*s_img+c*s_ch+p] = (wptr[p] - s->means[c]) * sqrt(s->invar[c]); // xi-mean * 1/sqrt(var)
+        wptr[p] = s->weights[c] * s->x_hat[b*s_img+c*s_ch+p] + s->bias[c];
+      }
     }
   }
-
-  for(int i=0; i<ch; i++) s->means[i] /= s_ch*batch;
-
-  // batch variance and inverse standard deviation
-  for(int b=0; b<batch; b++) {
-    int c;
-    for(c=0; c<ch; c++) {
-      const uint32_t widx = b*s_img+c*s_ch;
-      for(int i=0; i<s_ch; i++) vars[c] += std::pow(in[widx+i]-s->means[c], 2);
-    }
-  }
-
-  for(int i=0; i<ch; i++) vars[i] /= s_ch*batch; 
-  for(int i=0; i<ch; i++) s->invstd[i] = 1 / std::sqrt(vars[i]+s->eps);
-
-  // normalise, scale and shift
-  // pytorch first multiplies then adds bias-mean*invstd*weights;
-  // https://github.com/pytorch/pytorch/blob/420b37f3c67950ed93cd8aa7a12e673fcfc5567b/aten/src/ATen/native/Normalization.cpp#L96 
-  for(int i=0; i<batch; i++) {
-    for(int c=0; c<ch; c++) {
-      float* wptr = &in[i*s_img+c*s_ch];
-      for(int p=0; p<s_ch; p++) 
-        wptr[p] = (wptr[p]+s->bias[c]-s->means[c])*(s->invstd[c]*s->weights[c]);
-    }
-  }
+  free(newinvar);
+  free(newmeans);
   free(vars);
 }
+
+static void backprop_batchnorm(bnorm2d_state* s, const float* dwin, const float* xi, float* dx, 
+                               const uint32_t img_s, const uint32_t ch, const float lr) 
+{
+  float* dx_hat = (float*)calloc(BATCH*ch*img_s*img_s, sizeof(float));
+  float* sum_dx_mul_dx = (float*)calloc(BATCH, sizeof(float)); 
+  float* sum_dx_hat = (float*)calloc(BATCH, sizeof(float)); 
+  float* db = (float*)calloc(ch, sizeof(float));
+  float* dw = (float*)calloc(ch, sizeof(float));
+  const uint32_t s_ch  = img_s*img_s; 
+  const uint32_t s_img = ch*s_ch;
+  int i, j, c, b, wi;
+
+  // ∇x_hat = dy * gamma - 512x64x3x3 * 64 = 512x64x3x3 
+  for(b=0; b<BATCH; b++) { 
+    for(c=0; c<ch; c++) {
+      wi = b*s_img+c*s_ch;
+      for(i=0; i<s_ch; i++) { 
+        //printf("\n%14.6f ", dwin[b*s_img+c*s_ch+i]);
+        dx_hat[wi+i] += dwin[wi+i] * s->weights[c];
+        sum_dx_hat[b] += dx_hat[wi+i];
+        sum_dx_mul_dx[b] += dx_hat[wi+i]*dwin[wi+i];
+      }
+    }
+  }
+  // ∇y, ∇B, ∇x
+  for(b=0; b<BATCH; b++) {
+    for(c=0; c<ch; c++) { 
+      wi = b*s_img+c*s_ch;
+      for(i=0; i<s_ch; i++) {
+        db[c] += dwin[wi+i];
+        dw[c] += dwin[wi+i] * s->x_hat[wi+i];
+        dx[wi+i] = 1.f/BATCH * s->invar[c] * (BATCH * dx_hat[wi+i] 
+                           - sum_dx_hat[b] - dwin[wi+i] * sum_dx_mul_dx[b]); 
+      }
+    }
+  }
+
+  for(c=0; c<ch; c++) {   // update gamma and beta
+    //s->weights[c] += lr*dw[c];
+    //s->bias[c] += lr*db[c];
+    //printf("\n%10.5f - %10.5f = %10.5f", s->weights[c], lr*dw[c], s->weights[c]+lr*dw[c]);
+  }
+
+/*
+  printf("\n\n");
+  for(i=0; i<8; i++) {
+    for(j=0; j<8; j++) printf("%14.5f, ", db[i*8+j]); 
+    printf("\n");
+  }
+  printf("\n\n");
+*/
+
+  free(sum_dx_mul_dx);
+  free(sum_dx_hat);
+  free(dx_hat);
+  free(db);
+  free(dw);
+}
+
 
 
 // Max 2D Pooling ------------------------------------
@@ -527,7 +599,7 @@ inline void zero_grad(model* m, activations* a) {
 }
 
 // kaiming uniform -- https://arxiv.org/pdf/1502.01852.pdf
-static model init_model(void) {
+static model init_model(activations* a) {
   model r;
   const float lhs = std::sqrt(3.f)*std::sqrt(2.f/(1.f+5.f)); // tinygrad does math.sqrt(5)**2 as default a
   const float kb325 = lhs / std::sqrt(32*5*5);
@@ -535,10 +607,10 @@ static model init_model(void) {
   const float kb643 = lhs / std::sqrt(64*3*3);
   r.l1 = init_conv2d_layer(5, 1,  32, 512, kb325, -kb325);
   r.l2 = init_conv2d_layer(5, 32, 32, 512, kb325, -kb325);
-  r.l3 = init_batchnorm2d(32);
+  r.l3 = init_batchnorm2d(32, a->ls1);
   r.l4 = init_conv2d_layer(3, 32, 64, 512, kb323, -kb323);
   r.l5 = init_conv2d_layer(3, 64, 64, 512, kb643, -kb643);
-  r.l6 = init_batchnorm2d(64);
+  r.l6 = init_batchnorm2d(64, a->ls4);
   r.l7 = init_linear(576, 10);
   return r;
 }
@@ -558,7 +630,7 @@ static void backprop_sccl(const float* loss, float* out, float* probs,
 }
 
 inline void update_params(const float lr, float* params, const float* grad, uint32_t count) {
-  while(count-- > 0) params[count] -= lr*grad[count];
+  //while(count-- > 0) params[count] -= lr*grad[count];
 }
 
 // TODO: transpose
@@ -566,7 +638,7 @@ static void backprop_loss_l7(const float* loss, linear_state* l, float* probs,
                              const uint8_t* labels, float* xgrad) 
 {
   float* wt = (float*)calloc(10*576, sizeof(float));
-  float* xt = (float*)calloc(576*512, sizeof(float));
+  float* xt = (float*)malloc(576*512* sizeof(float));
   float* dY = (float*)calloc(BATCH*10, sizeof(float));
   transpose(probs, xt, 512, 576);    // 512x576 -> 576x512
   transpose(l->weights, wt, 576, 10); // 576x10 -> 10x576
@@ -574,61 +646,15 @@ static void backprop_loss_l7(const float* loss, linear_state* l, float* probs,
   sgemm(xt, dY, l->grad, 576, 10, 512); // Xt @ dY = dW - 576x512 @ 512x10 = 576x10 
   sgemm(dY, wt, xgrad, 512, 576, 10);   // dY @ Wt = dX - 512x10  @ 10x576 = 512x576
   update_params(LR, l->weights, l->grad, 576*10);
+
+  for(int i=0; i<80; i++) {
+    for(int j=0; j<15; j++) printf("%10.5f, ", l->grad[i*15+j]);
+    printf("\n");
+  }
+
   free(dY); 
   free(wt);
   free(xt);
-}
-
-static void backprop_batchnorm(bnorm2d_state s, const float* dwin, const float* xi, float* dx, 
-                               const uint32_t img_s, const uint32_t ch, const float lr) 
-{
-  float* dx_hat = (float*)calloc(BATCH*ch*img_s*img_s, sizeof(float));
-  float* sum_dx_mul_dx = (float*)calloc(BATCH, sizeof(float)); 
-  float* sum_dx_hat = (float*)calloc(BATCH, sizeof(float)); 
-  float* db = (float*)calloc(ch, sizeof(float));
-  float* dw = (float*)calloc(ch, sizeof(float));
-  const uint32_t s_ch  = img_s*img_s; 
-  const uint32_t s_img = ch*s_ch;
-  int i, j, c, b, wi;
-
-  // ∇x_hat = dy * gamma - 512x64x3x3 * 64 = 512x64x3x3 
-  for(b=0; b<BATCH; b++) { 
-    for(c=0; c<ch; c++) {
-      wi = b*s_img+c*s_ch;
-      for(i=0; i<img_s; i++) { 
-        for(j=0; j<img_s; j++) {
-          dx_hat[wi+i*img_s+j] += dwin[wi+i*img_s+j] * s.weights[c];
-          sum_dx_hat[b]    += dx_hat[wi+i*img_s+j];
-          sum_dx_mul_dx[b] += dx_hat[wi+i*img_s+j]*dwin[wi+i*img_s+j];
-        }
-      }
-    }
-  }
-  // ∇y, ∇B, ∇x
-  for(b=0; b<BATCH; b++) {
-    for(c=0; c<ch; c++) { 
-      wi = b*s_img+c*s_ch;
-      for(i=0; i<img_s; i++) {
-        for(j=0; j<img_s; j++) {
-          db[c] += dwin[wi+i*img_s+j]; 
-          dw[c] += dwin[wi+i*img_s+j] * xi[wi+i*img_s+j]; 
-          dx[wi+i*img_s+j] = 1.f/BATCH * 1.f/pow(s.invstd[c], 2) * (BATCH*dx_hat[wi+i*img_s+j] 
-                             - sum_dx_hat[b] - dwin[wi+i*img_s+j]*sum_dx_mul_dx[b]); 
-        }
-      }
-    }
-  }
-  // update gamma and beta
-  for(i=0; i<ch; i++) {
-    s.weights[i] += lr*dw[i];
-    s.bias[i]    += lr*db[i];
-  }
-
-  free(sum_dx_mul_dx);
-  free(sum_dx_hat);
-  free(dx_hat);
-  free(db);
-  free(dw);
 }
 
 static void backprop(const float* loss, model* m, activations* a, const uint8_t* labels, const uint32_t count) {
@@ -639,15 +665,8 @@ static void backprop(const float* loss, model* m, activations* a, const uint8_t*
 
   backprop_loss_l7(loss, &m->l7, a->outs6, labels, l7dw);
   backprop_maxpool(a->idxs1, l7dw, l6dw, BATCH*64*a->ls5*a->ls5);
-  backprop_batchnorm(m->l6, l6dw, a->outs4, l5dw, a->ls4, 64, LR);
-  //backprop_relu(a->outs4, l5dw, 512*64*a->ls4*a->ls4);
-
-/*
-  for(int i=0; i<80; i++) {
-    for(int j=0; j<15; j++) printf("%10.2f, ", l7dw[i*15+j]);
-    printf("\n");
-  }
-*/
+  backprop_batchnorm(&m->l6, l6dw, a->outs4, l5dw, a->ls4, 64, LR);
+  backprop_relu(a->outs4, l5dw, 512*64*a->ls4*a->ls4);
 
   free(l7dw);
 }
@@ -739,12 +758,12 @@ static float forward(model* m, activations* a, float* input, u8* labels) {
 
 /*
   for(int i=0; i<80; i++) {
-    for(int j=0; j<15; j++) printf("%10.5f, ", a->outs6[i*15+j]);
+    for(int j=0; j<15; j++) printf("%10.6f, ", a->outs4[i*15+j]);
     printf("\n");
   }
-  */
+*/
 
-  return sparse_categorical_crossentropy(a->outs0, 512, labels);
+  return sparse_categorical_crossentropy(a->outs6, 512, labels);
 }
 
 
@@ -752,9 +771,9 @@ int main(void) {
 
   mnist_t mnist = load_mnist();
 
-  model m = init_model();
   activations a;
   init_activations(&a);
+  model m = init_model(&a);
 
 #if DEBUG > 1
 
@@ -822,7 +841,7 @@ int main(void) {
   float* x_batch = (float*)aligned_alloc(ALIGNMENT, 512*28*28*sizeof(float)); 
   u8* y_batch = (u8*)aligned_alloc(ALIGNMENT, 512*sizeof(u8));
 
-  for(int i=0; i<2; i++) {
+  for(int i=0; i<51; i++) {
     BEGIN_PMU_TRACKING();
 
     zero_activations(&a);
